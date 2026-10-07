@@ -118,3 +118,14 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
   scroll back to the bottom, click the FAB, or re-enable Follow.
   A short-landing programmatic scroll can no longer be mistaken for the
   user scrolling away (that false positive silently killed follow).
+
+## v1.6.0 — PhpStorm New UI style context pool
+- rounded panels everywhere (log view, sidebar, cards, composer)
+- single persistent chat composer: content survives tab switches; the
+  send button routes to the active tab (blue = context, purple = rules)
+  and is icon-only
+- context and rule cards are editable inline (pencil button)
+- rules accented purple; transfer labels neutral; write arrow turns
+  amber (not green) when active
+- search matches are highlighted inside log lines
+- FAB redrawn as a stem-less chevron, blue to match the send button
