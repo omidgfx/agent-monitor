@@ -35,7 +35,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.5.5"
+VERSION = "1.5.6"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -957,23 +957,22 @@ def run_gui(shot_path=None):
             insert_line(ln)
         refresh_status()
 
+    follow_state = {"user_away": False, "auto_until": 0.0}
+
     def _scroll_end_now():
         mark = buf.create_mark(None, buf.get_end_iter())
         tv.scroll_mark_onscreen(mark)
         buf.delete_mark(mark)
+        follow_state["auto_until"] = time.time() + 0.30
 
     def scroll_end():
         GLib.idle_add(_scroll_end_now)
         GLib.timeout_add(60, _scroll_end_now)
-
-    def _at_bottom():
-        a = sw.get_vadjustment()
-        return a.get_value() + a.get_page_size() >= a.get_upper() - 60
+        GLib.timeout_add(180, _scroll_end_now)
 
     def on_poll_log():
         fresh = store.poll()
         if fresh:
-            was_bottom = _at_bottom()
             for ln in fresh:
                 m = LINE_RE.match(ln)
                 if classify(m.group(3) if m else ln) == "write":
@@ -987,23 +986,34 @@ def run_gui(shot_path=None):
                     insert_line(ln)
                 if buf.get_line_count() > 9000:
                     buf.delete(buf.get_start_iter(), buf.get_iter_at_line(3000))
-            if follow.get_active() and was_bottom:
+            if follow.get_active() and not follow_state["user_away"]:
                 scroll_end()
         refresh_status()
         return True
 
     def _update_fab():
-        has_content = buf.get_line_count() > 1
-        try:
-            at_end = _at_bottom()
-        except Exception:
-            at_end = True
-        logfab_revealer.set_reveal_child(has_content and not at_end)
+        logfab_revealer.set_reveal_child(
+            buf.get_line_count() > 1 and follow_state["user_away"])
+
+    def _on_vadj_value(vadj):
+        if time.time() < follow_state["auto_until"]:
+            return
+        a = sw.get_vadjustment()
+        at_bottom = a.get_value() + a.get_page_size() >= a.get_upper() - 30
+        follow_state["user_away"] = not at_bottom
+        _update_fab()
 
     _vadj = sw.get_vadjustment()
-    _vadj.connect("changed", lambda *_a: _update_fab())
-    _vadj.connect("value-changed", lambda *_a: _update_fab())
-    logfab.connect("clicked", lambda *_a: scroll_end())
+    _vadj.connect("value-changed", _on_vadj_value)
+    logfab.connect("clicked", lambda *_a: (
+        follow_state.update(user_away=False), scroll_end()))
+
+    def _follow_toggled(btn):
+        if btn.get_active():
+            follow_state["user_away"] = False
+            scroll_end()
+
+    follow.connect("toggled", _follow_toggled)
 
     def on_search_changed(_e):
         nonlocal filter_text
@@ -1837,8 +1847,11 @@ def run_gui(shot_path=None):
     if shot_path:
         def snap():
             try:
-                print("BOOT-STATE at-end=%s fab=%s lines=%d" %
-                      (_at_bottom(), logfab_revealer.get_reveal_child(),
+                a = sw.get_vadjustment()
+                print("BOOT-STATE at-end=%s user-away=%s fab=%s lines=%d" %
+                      (a.get_value() + a.get_page_size() >= a.get_upper() - 30,
+                       follow_state["user_away"],
+                       logfab_revealer.get_reveal_child(),
                        buf.get_line_count()))
             except Exception as exc:
                 print("BOOT-STATE err %r" % exc)

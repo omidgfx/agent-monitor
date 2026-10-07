@@ -111,3 +111,10 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
   inserts, before text layout -> landed short -> next poll saw "not at
   bottom" and silently stopped following. Scrolls are now deferred to
   after layout (idle + 60 ms). --screenshot prints BOOT-STATE ground truth.
+
+## v1.5.6 — follow cannot die silently
+- auto-follow now pauses ONLY on a genuine user scroll (adjustment
+  value-changed outside the auto-scroll window) and resumes when you
+  scroll back to the bottom, click the FAB, or re-enable Follow.
+  A short-landing programmatic scroll can no longer be mistaken for the
+  user scrolling away (that false positive silently killed follow).
