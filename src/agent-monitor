@@ -648,7 +648,7 @@ def run_gui(shot_path=None):
             "sbar": (0.055, 0.073, 0.098) if dark else (0.961, 0.969, 0.976),
             "sbar2": (0.043, 0.059, 0.080) if dark else (0.929, 0.941, 0.953),
             "card": "#18202e" if dark else "#eef1f5",
-            "amber": "#e3b341" if dark else "#b08800",
+            "amber": (0.890, 0.702, 0.255) if dark else (0.690, 0.533, 0.0),
             "hl_bg": "#e3b341" if dark else "#fff1a8",
             "hl_fg": "#0d1117" if dark else "#24292f",
             "lbl": "#8b949e" if dark else "#57606a",
