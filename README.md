@@ -25,6 +25,9 @@ command (including non-interactive ssh sessions) is appended to:
 The GUI tails today's file. `Clear today` truncates only today's file.
 
 ## Install
+
+> AI agent working on this machine? Read [SKILL.md](SKILL.md) first.
+> Full human manual: [USAGE.md](USAGE.md).
     sudo dpkg -i agent-monitor_1.1.0_all.deb   # deps: python3-gi gir1.2-gtk-3.0
     agent-monitor-install-hook                 # once, as your user
 
