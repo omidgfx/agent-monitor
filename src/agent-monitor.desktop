@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Monitor
+GenericName=Agent Activity Monitor
+Comment=Live view of the AI agent's commands, reads/writes and tunnel state
+Exec=/usr/bin/agent-monitor
+Icon=agent-monitor
+Terminal=false
+Categories=System;Monitor;Utility;
+Keywords=agent;monitor;tunnel;cloudflared;log;
+StartupNotify=true

@@ -1,0 +1,13 @@
+# Agent Monitor audit hook - sourced via BASH_ENV by non-interactive shells.
+# Appends every executed command to ~/.agent-monitor/logs/commands-YYYY-MM-DD.log
+_agent_log_dir="$HOME/.agent-monitor/logs"
+_agent_log_cmd() {
+  local cmd="$BASH_COMMAND"
+  [ -z "${cmd// }" ] && return 0
+  case "$cmd" in
+    *_agent_log_cmd*|*.agent-auto-log*) return 0 ;;
+  esac
+  [ -d "$_agent_log_dir" ] || mkdir -p "$_agent_log_dir" 2>/dev/null
+  printf '%s [%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(id -un)" "$cmd" >> "$_agent_log_dir/commands-$(date +%F).log" 2>/dev/null || true
+}
+trap _agent_log_cmd DEBUG

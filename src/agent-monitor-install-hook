@@ -1,0 +1,12 @@
+#!/bin/bash
+# agent-monitor-install-hook - enable the command audit hook for the current user.
+set -euo pipefail
+HOOK_SRC=/usr/share/agent-monitor/hook.sh
+[ -f "$HOOK_SRC" ] || { echo "hook template missing: $HOOK_SRC (is the deb installed?)"; exit 1; }
+cp "$HOOK_SRC" "$HOME/.agent-auto-log"
+chmod 644 "$HOME/.agent-auto-log"
+mkdir -p "$HOME/.agent-monitor/logs"
+if ! grep -q "agent-auto-log" "$HOME/.bashrc" 2>/dev/null; then
+  printf '\nexport BASH_ENV="$HOME/.agent-auto-log"\n. "$HOME/.agent-auto-log" 2>/dev/null || true\n' >> "$HOME/.bashrc"
+fi
+echo "audit hook installed for $(id -un): commands log to ~/.agent-monitor/logs/"

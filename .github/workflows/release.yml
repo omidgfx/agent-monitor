@@ -1,0 +1,25 @@
+name: release-deb
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .deb
+        run: ./build-deb.sh
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="$(cat VERSION)"
+          TAG="v$V"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "agent-monitor_${V}_all.deb" --clobber
+          else
+            gh release create "$TAG" "agent-monitor_${V}_all.deb" --title "Agent Monitor $TAG" --generate-notes
+          fi
