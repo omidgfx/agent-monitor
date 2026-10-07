@@ -35,7 +35,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -647,12 +647,21 @@ def run_gui(shot_path=None):
         return {
             "sbar": (0.055, 0.073, 0.098) if dark else (0.961, 0.969, 0.976),
             "sbar2": (0.043, 0.059, 0.080) if dark else (0.929, 0.941, 0.953),
-            "card": "#18202e" if dark else "#eef1f5",
+            # surface ladder derived from the native theme background
+            # (Adwaita: #353535 dark / #f6f5f4 light) — neutral, no tint
+            "panel": "#2f2f2f" if dark else "#efeeed",
+            "card": "#2a2a2a" if dark else "#e9e8e7",
+            "card2": "#252525" if dark else "#ffffff",
+            "border2": "#232323" if dark else "#d4d3d2",
+            "field": "#202020" if dark else "#ffffff",
+            "seg": "rgba(255,255,255,0.08)" if dark else "rgba(0,0,0,0.07)",
+            "seg_on": "#323232" if dark else "#ffffff",
+            "accent": "#2f81f7" if dark else "#0550ae",
             "amber": (0.890, 0.702, 0.255) if dark else (0.690, 0.533, 0.0),
             "hl_bg": "#e3b341" if dark else "#fff1a8",
             "hl_fg": "#0d1117" if dark else "#24292f",
-            "lbl": "#8b949e" if dark else "#57606a",
-            "border": "#1c2430" if dark else "#d4dae0",
+            "lbl": "#929291" if dark else "#6b6a67",
+            "border": "#272727" if dark else "#dddcdc",
             "log_bg": "#0d1117" if dark else "#ffffff",
             "ts": "#5c6773" if dark else "#697077",
             "user": "#7aa2f7" if dark else "#0550ae",
@@ -661,7 +670,7 @@ def run_gui(shot_path=None):
             "even": "#1a2333" if dark else "#f6f8fa",
             "link": "#58a6ff" if dark else "#0969da",
             "url": "#d2a8ff" if dark else "#8250df",
-            "idle": (0.23, 0.26, 0.31) if dark else (0.71, 0.75, 0.80),
+            "idle": (0.545, 0.580, 0.620) if dark else (0.341, 0.376, 0.416),
             "green": (0.133, 0.722, 0.369) if dark else (0.10, 0.50, 0.215),
             "pill_up": "#2ea043" if dark else "#1a7f37",
             "pill_conn": "#bb6700" if dark else "#9a6700",
@@ -696,44 +705,66 @@ def run_gui(shot_path=None):
     def css_text():
         p = state["pal"]
         return ("""
-        #logview, #logview text { font-size: 9pt; background-color: %s; }
-        #logview { border-radius: 12px; }
+        #logview, #logview text { font-size: 9pt; }
+        #logscroll { background: transparent; border: none; }
+        #logscroll viewport { background: transparent; }
+        #logview { background-color: %(log_bg)s; border: 1px solid %(border)s;
+                   border-radius: 12px; }
+        #logview text { background-color: transparent; }
         #logview text selection { background-color: #a8d0f7; }
-        #sbar-a { background: %s; border-top: 1px solid %s; }
-        #sbar-b { background: %s; border-top: 1px solid %s; }
+        #sbar-a { background: transparent; border-top: 1px solid %(border)s; }
+        #sbar-b { background: transparent; border-top: 1px solid %(border)s; }
         #sbar-b label { font-size: 7.5pt; opacity: 0.82; }
-        #flowlbl { font-size: 7.5pt; font-family: Monospace; color: %s; }
+        #flowlbl { font-size: 7.5pt; font-family: Monospace; color: %(lbl)s; }
         #tunnelpill { padding: 1px 9px; border-radius: 10px; min-height: 0;
                       background-image: none;
-                      background-color: %s; border: none; }
+                      background-color: %(pill_bg)s; border: none; }
         #tunnelpill label { font-size: 8pt; padding: 0; }
-        #tunnelpill:hover { background-color: %s; }
-        #tunnelpill:checked { background-color: %s; }
+        #tunnelpill:hover { background-color: %(pill_bg_h)s; }
+        #tunnelpill:checked { background-color: %(pill_bg_c)s; }
         #searchbar { border-radius: 8px; }
         #toolbar button { border-radius: 8px; padding: 3px; }
-        #ctxside { background: %s; border: 1px solid %s; border-radius: 14px; }
-        #ctxcard { background: %s; border-radius: 12px; }
-        #ctxmeta { font-size: 7pt; opacity: 0.75; }
-        #ctxtabs { background: %s; border-radius: 9px; padding: 2px; }
-        #ctxtabs button { border: none; border-radius: 7px;
+        #ctxside { background: %(panel)s; border: 1px solid %(border)s;
+                   border-radius: 14px; }
+        #ctxpanel { background: %(card)s; border: 1px solid %(border2)s;
+                    border-radius: 12px; }
+        #ctxcard { background: %(card2)s; border: 1px solid %(border2)s;
+                   border-radius: 10px; }
+        #cardbtn { color: %(lbl)s; background: transparent; border: none;
+                   padding: 3px; min-width: 0; min-height: 0; }
+        #cardbtn:hover { color: %(rd)s; }
+        #ctxmeta { font-size: 7pt; opacity: 0.8; }
+        #ctxtabs { background-color: %(seg)s; border-radius: 8px; padding: 3px; }
+        #ctxtabs button { border: none; border-radius: 6px;
                           background: transparent; padding: 2px 10px; }
-        #ctxtabs button:checked { background: %s; }
+        #ctxtabs button:checked { background-color: %(seg_on)s; }
+        #tabctx:checked label { color: %(accent)s; }
+        #tabrules:checked label { color: #8957e5; }
         #ctxbody, #ctxtitle { font-size: 8pt; }
-        #ctxframe { border-radius: 10px; }
-        #ctxinput, #ctxinput text { background-color: %s; border-radius: 10px; }
+        #field { background-color: %(field)s; border: 1px solid %(border2)s;
+                 border-radius: 9px; }
+        #fieldtv, #fieldtv text { background-color: transparent; }
         #logfab { border-radius: 999px; background: #2f81f7; border: none;
-                  padding: 6px; }
+                  min-width: 18px; min-height: 18px; padding: 8px; }
         #logfab:hover { background: #4493f8; }
         .sendctx { background: #2f81f7; color: #ffffff; border: none;
-                   border-radius: 9px; padding: 8px; }
+                   border-radius: 999px; min-width: 22px; min-height: 22px;
+                   padding: 6px; }
         .sendctx:hover { background: #4493f8; }
         .sendrules { background: #8957e5; color: #ffffff; border: none;
-                     border-radius: 9px; padding: 8px; }
+                     border-radius: 999px; min-width: 22px; min-height: 22px;
+                     padding: 6px; }
         .sendrules:hover { background: #9a6cff; }
-        """ % (p["log_bg"], rgb_str(p["sbar"]), p["border"], rgb_str(p["sbar2"]),
-               p["border"], p["pill_bg"], p["pill_bg_h"], p["pill_bg_c"],
-               rgb_str(p["sbar"]), p["border"], p["card"],
-               p["card"], p["pill_bg_c"], p["lbl"], p["card"])).encode()
+        .roundbtn { border-radius: 999px; min-width: 22px; min-height: 22px;
+                    padding: 6px; }
+        """ % {
+            "log_bg": p["log_bg"], "border": p["border"], "lbl": p["lbl"],
+            "pill_bg": p["pill_bg"], "pill_bg_h": p["pill_bg_h"],
+            "pill_bg_c": p["pill_bg_c"], "panel": p["panel"],
+            "card": p["card"], "card2": p["card2"], "border2": p["border2"],
+            "seg": p["seg"], "seg_on": p["seg_on"], "field": p["field"],
+            "accent": p["accent"], "rd": p["rd"],
+        }).encode()
 
     providers = []
 
@@ -786,6 +817,11 @@ def run_gui(shot_path=None):
                     except Exception:
                         pass
                     break
+        if state.get("pill_state"):
+            set_pill(*state["pill_state"])
+        sig_last["ctx"] = None
+        sig_last["rules"] = None
+        refresh_ctx_tabs()
         arrows.queue_draw()
 
     def load_img(fname, size, fallback):
@@ -895,15 +931,18 @@ def run_gui(shot_path=None):
     tv.set_cursor_visible(False)
     tv.set_monospace(True)
     tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-    tv.set_left_margin(8)
-    tv.set_right_margin(8)
-    tv.set_top_margin(3)
-    tv.set_bottom_margin(3)
+    tv.set_left_margin(10)
+    tv.set_right_margin(10)
+    tv.set_top_margin(6)
+    tv.set_bottom_margin(6)
+    tv.set_pixels_below_lines(1)
     buf = tv.get_buffer()
     tags = {}
     for name in ("ts", "user", "rd", "wr", "even", "hl"):
         tags[name] = buf.create_tag(name)
+    tags["ts"].set_property("scale", 0.85)
     sw = Gtk.ScrolledWindow()
+    sw.set_name("logscroll")
     sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
     sw.add(tv)
     logfab = Gtk.Button()
@@ -914,16 +953,19 @@ def run_gui(shot_path=None):
     except Exception:
         _CAP_ROUND = None
     _chev = Gtk.DrawingArea()
-    _chev.set_size_request(14, 12)
+    _chev.set_size_request(18, 18)
 
     def _chev_draw(_w, cr):
+        w = _w.get_allocated_width() or 18
+        h = _w.get_allocated_height() or 18
+        cx, cy = w / 2.0, h / 2.0
         cr.set_source_rgb(1.0, 1.0, 1.0)
-        cr.set_line_width(2.6)
+        cr.set_line_width(3.0)
         if _CAP_ROUND is not None:
             cr.set_line_cap(_CAP_ROUND)
-        cr.move_to(2.5, 3.5)
-        cr.line_to(7.0, 8.0)
-        cr.line_to(11.5, 3.5)
+        cr.move_to(cx - 4.5, cy - 3.0)
+        cr.line_to(cx, cy + 1.5)
+        cr.line_to(cx + 4.5, cy - 3.0)
         cr.stroke()
         return False
 
@@ -941,10 +983,10 @@ def run_gui(shot_path=None):
     log_overlay = Gtk.Overlay()
     log_overlay.add(sw)
     log_overlay.add_overlay(logfab_revealer)
-    for _m in ("start", "end"):
-        getattr(log_overlay, "set_margin_%s" % _m)(8)
-    log_overlay.set_margin_top(6)
-    log_overlay.set_margin_bottom(6)
+    log_overlay.set_margin_start(8)
+    log_overlay.set_margin_end(5)
+    log_overlay.set_margin_top(2)
+    log_overlay.set_margin_bottom(5)
 
     status = Gtk.Label(xalign=0.0)
     status.set_ellipsize(Pango.EllipsizeMode.END)
@@ -988,6 +1030,10 @@ def run_gui(shot_path=None):
             i = low.find(filter_text, i + len(filter_text))
 
     def insert_line(ln):
+        # display-only truncation: pathological lines (e.g. embedded base64
+        # blobs) would otherwise wrap into thousands of rows and stall layout
+        if len(ln) > 400:
+            ln = ln[:400] + " \u2026 +%d chars" % (len(ln) - 400)
         line_start = buf.get_char_count()
         m = LINE_RE.match(ln)
         if m:
@@ -1060,13 +1106,33 @@ def run_gui(shot_path=None):
             insert_line(ln)
         refresh_status()
 
-    follow_state = {"user_away": False, "auto_until": 0.0}
+    follow_state = {"user_away": False, "auto_until": 0.0, "want_bottom": False}
+
+    def _top_visible_line():
+        try:
+            rect = tv.get_visible_rect()
+            lo, hi = 0, max(0, buf.get_line_count() - 1)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                y, h = tv.get_line_yrange(buf.get_iter_at_line(mid))
+                if y + h <= rect.y:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            return lo
+        except Exception:
+            pass
+        return -1
 
     def _scroll_end_now():
+        follow_state["auto_until"] = time.time() + 1.5
+        follow_state["want_bottom"] = True
+        a = sw.get_vadjustment()
+        if a.get_upper() > 0:
+            a.set_value(max(0.0, a.get_upper() - a.get_page_size()))
         mark = buf.create_mark(None, buf.get_end_iter())
         tv.scroll_mark_onscreen(mark)
         buf.delete_mark(mark)
-        follow_state["auto_until"] = time.time() + 1.5
 
     def scroll_end():
         GLib.idle_add(_scroll_end_now)
@@ -1099,14 +1165,23 @@ def run_gui(shot_path=None):
             buf.get_line_count() > 1 and follow_state["user_away"])
 
     def _on_vadj_value(vadj):
-        if time.time() < follow_state["auto_until"]:
-            return
         a = sw.get_vadjustment()
         at_bottom = a.get_value() + a.get_page_size() >= a.get_upper() - 30
+        if time.time() < follow_state["auto_until"]:
+            if (at_bottom and follow_state["user_away"]
+                    and follow_state["want_bottom"]):
+                print("follow: user_away=False via vadj auto at bottom",
+                      file=sys.stderr)
+                follow_state["user_away"] = False
+                follow_state["want_bottom"] = False
+                _update_fab()
+            return
         if follow_state["user_away"] != (not at_bottom):
             print("follow: user_away=%s via vadj (val=%.0f upper=%.0f)" %
                   (not at_bottom, a.get_value(), a.get_upper()), file=sys.stderr)
         follow_state["user_away"] = not at_bottom
+        if follow_state["user_away"]:
+            follow_state["want_bottom"] = False
         _update_fab()
 
     def _on_wheel(_w, event):
@@ -1114,6 +1189,7 @@ def run_gui(shot_path=None):
             if not follow_state["user_away"]:
                 print("follow: user_away=True via wheel", file=sys.stderr)
                 follow_state["user_away"] = True
+                follow_state["want_bottom"] = False
                 _update_fab()
         elif event.direction == Gdk.ScrollDirection.DOWN:
             a = sw.get_vadjustment()
@@ -1130,7 +1206,7 @@ def run_gui(shot_path=None):
     _vadj = sw.get_vadjustment()
     _vadj.connect("value-changed", _on_vadj_value)
     logfab.connect("clicked", lambda *_a: (
-        follow_state.update(user_away=False), scroll_end()))
+        follow_state.update(user_away=False), _update_fab(), scroll_end()))
 
     def _follow_toggled(btn):
         if btn.get_active():
@@ -1142,13 +1218,18 @@ def run_gui(shot_path=None):
     def on_search_changed(_e):
         nonlocal filter_text
         filter_text = search.get_text().strip().lower()
+        follow_state["auto_until"] = time.time() + 1.0
+        follow_state["want_bottom"] = False
         rebuild()
-        if follow.get_active():
+        if follow.get_active() and not follow_state["user_away"]:
             scroll_end()
 
     search.connect("changed", on_search_changed)
 
     def on_dates_toggle(_b):
+        a = sw.get_vadjustment()
+        at_bottom = a.get_value() + a.get_page_size() >= a.get_upper() - 30
+        top_line = _top_visible_line()
         state["dates"] = "gregorian" if state["dates"] == "jalali" else "jalali"
         try:
             with open(DATES_FILE, "w") as fh:
@@ -1156,7 +1237,22 @@ def run_gui(shot_path=None):
         except OSError:
             pass
         date_btn.set_tooltip_text("Dates: %s (click to switch)" % state["dates"])
+        follow_state["auto_until"] = time.time() + 1.0
+        follow_state["want_bottom"] = False
         rebuild()
+
+        def _restore():
+            a2 = sw.get_vadjustment()
+            if at_bottom or not follow_state["user_away"]:
+                _scroll_end_now()
+            else:
+                it = buf.get_iter_at_line(
+                    min(max(top_line, 0), max(0, buf.get_line_count() - 1)))
+                tv.scroll_to_iter(it, 0.0, True, 0.0, 0.0)
+            return False
+
+        GLib.idle_add(_restore)
+        GLib.timeout_add(60, _restore)
 
     date_btn.connect("clicked", on_dates_toggle)
 
@@ -1253,24 +1349,37 @@ def run_gui(shot_path=None):
 
     ctx_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     ctx_side.set_name("ctxside")
-    ctx_side.set_size_request(304, -1)
-    for m in ("top", "bottom", "start", "end"):
-        getattr(ctx_side, "set_margin_%s" % m)(8)
+    ctx_side.set_size_request(316, -1)
+    for m, v in (("top", 2), ("bottom", 5), ("start", 5), ("end", 8)):
+        getattr(ctx_side, "set_margin_%s" % m)(v)
 
     ctx_title = Gtk.Label(xalign=0.0)
-    ctx_title.set_markup("<b>Context pool</b>")
+    ctx_title.set_markup("<span size='9500' weight='bold'>Context Pool</span>")
     ctx_sub = Gtk.Label(xalign=0.0)
-    ctx_sub.set_markup("<small>type below \u2014 the agent picks it up at its next break</small>")
+    ctx_sub.set_line_wrap(True)
+    ctx_sub.set_max_width_chars(36)
+    ctx_sub.set_markup(
+        "<small>notes \u2192 the agent picks them up at its next break</small>")
     ctx_sub.get_style_context().add_class("dim-label")
+    ctx_head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    for m, v in (("top", 8), ("bottom", 0), ("start", 12), ("end", 12)):
+        getattr(ctx_head, "set_margin_%s" % m)(v)
+    ctx_head.pack_start(ctx_title, False, False, 0)
+    ctx_head.pack_start(ctx_sub, False, False, 0)
     ctx_stack = Gtk.Stack()
     ctx_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
     ctx_tabs = Gtk.Box(spacing=2)
     ctx_tabs.set_name("ctxtabs")
+    for m, v in (("top", 8), ("bottom", 2), ("start", 8), ("end", 8)):
+        getattr(ctx_tabs, "set_margin_%s" % m)(v)
     tab_btns = {"ctx": Gtk.ToggleButton.new_with_mnemonic("_Context"),
                 "rules": Gtk.ToggleButton.new_with_mnemonic("_Rules")}
+    tab_btns["ctx"].set_name("tabctx")
+    tab_btns["rules"].set_name("tabrules")
     for _b in tab_btns.values():
-        _b.set_hexpand(True)
-        ctx_tabs.pack_start(_b, False, True, 0)
+        # NB: pack-level expand only — widget-level hexpand would propagate
+        # up and make the whole sidebar expand against the log column.
+        ctx_tabs.pack_start(_b, True, True, 0)
 
     def _sel_tab(name):
         for _k, _btn in tab_btns.items():
@@ -1301,15 +1410,18 @@ def run_gui(shot_path=None):
     tab_btns["ctx"].connect("toggled", _tab_cbs["ctx"])
     tab_btns["rules"].connect("toggled", _tab_cbs["rules"])
 
-    def ctx_card(text, when, badge, badge_hex, on_delete, on_save):
+    _edit_probe = []
+
+    def ctx_card(cid, text, when, badge, badge_hex, dim_hex, on_delete, on_save):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.set_name("ctxcard")
         header = Gtk.Box(spacing=6)
-        header.set_margin_top(8)
-        header.set_margin_start(10)
-        header.set_margin_end(10)
+        header.set_margin_top(6)
+        header.set_margin_start(8)
+        header.set_margin_end(6)
         arrow = Gtk.ToggleButton()
         arrow.set_relief(Gtk.ReliefStyle.NONE)
+        arrow.set_name("cardbtn")
         arrow.set_active(True)
 
         def _arrow_icon(btn):
@@ -1333,16 +1445,18 @@ def run_gui(shot_path=None):
         ml = Gtk.Label(xalign=0.0)
         ml.set_name("ctxmeta")
         ml.set_markup("<span foreground='%s' weight='bold'>%s</span>"
-                      " <span foreground='#8b949e'>\u00b7 %s</span>"
-                      % (badge_hex, badge, when))
+                      " <span foreground='%s'>\u00b7 %s</span>"
+                      % (badge_hex, badge, dim_hex, when))
         tb = Gtk.Button()
         tb.set_image(Gtk.Image.new_from_icon_name("user-trash-symbolic", Gtk.IconSize.BUTTON))
         tb.set_relief(Gtk.ReliefStyle.NONE)
+        tb.set_name("cardbtn")
         tb.set_tooltip_text("Delete")
         tb.connect("clicked", on_delete)
         eb = Gtk.Button()
         eb.set_image(Gtk.Image.new_from_icon_name("document-edit-symbolic", Gtk.IconSize.BUTTON))
         eb.set_relief(Gtk.ReliefStyle.NONE)
+        eb.set_name("cardbtn")
         eb.set_tooltip_text("Edit")
         header.pack_start(arrow, False, False, 0)
         header.pack_start(title, True, True, 0)
@@ -1353,21 +1467,31 @@ def run_gui(shot_path=None):
         body.set_name("ctxbody")
         body.set_line_wrap(True)
         body.set_max_width_chars(38)
-        body.set_text(text)
+        if len(text) > 1000:
+            body.set_text(text[:1000] +
+                          "\n\u2026 %d more chars (edit to see all)"
+                          % (len(text) - 1000))
+        else:
+            body.set_text(text)
         body.set_selectable(True)
         body.set_margin_start(10)
         body.set_margin_end(10)
-        body.set_margin_bottom(10)
+        body.set_margin_bottom(8)
         editor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         editor_box.set_no_show_all(True)
         editor_box.set_margin_start(10)
         editor_box.set_margin_end(10)
-        editor_box.set_margin_bottom(10)
+        editor_box.set_margin_bottom(8)
         etv = Gtk.TextView()
-        etv.set_name("ctxinput")
+        etv.set_name("fieldtv")
         etv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         etv.set_size_request(-1, 70)
+        for _m, _v in (("left", 8), ("right", 8), ("top", 6), ("bottom", 6)):
+            getattr(etv, "set_%s_margin" % _m)(_v)
         etv.get_buffer().set_text(text)
+        ebox = Gtk.Box()
+        ebox.set_name("field")
+        ebox.pack_start(etv, True, True, 0)
         ebtns = Gtk.Box(spacing=6)
         ebtns.set_halign(Gtk.Align.END)
         eok = Gtk.Button()
@@ -1376,11 +1500,16 @@ def run_gui(shot_path=None):
         eok.set_tooltip_text("Save")
         eno = Gtk.Button()
         eno.set_image(Gtk.Image.new_from_icon_name("window-close-symbolic", Gtk.IconSize.BUTTON))
+        eno.get_style_context().add_class("roundbtn")
         eno.set_tooltip_text("Cancel")
 
         def start_edit(*_a):
             etv.get_buffer().set_text(text)
-            editor_box.show_all()
+            # NB: show_all() is a no-op on a no_show_all widget — show the
+            # box itself, then its children explicitly.
+            editor_box.show()
+            for _ch in editor_box.get_children():
+                _ch.show_all()
             body.set_visible(False)
 
         def stop_edit(*_a):
@@ -1398,40 +1527,45 @@ def run_gui(shot_path=None):
         eb.connect("clicked", start_edit)
         eno.connect("clicked", stop_edit)
         eok.connect("clicked", save_edit)
-        editor_box.pack_start(etv, False, False, 0)
+        editor_box.pack_start(ebox, False, False, 0)
         editor_box.pack_start(ebtns, False, False, 0)
         ebtns.pack_start(eno, False, False, 0)
         ebtns.pack_start(eok, False, False, 0)
         card.pack_start(header, False, False, 0)
         card.pack_start(body, False, False, 0)
         card.pack_start(editor_box, False, False, 0)
+        _edit_probe.append((eb, eok, editor_box, etv, cid))
         return card
 
     ctx_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     ctx_info = Gtk.Label(xalign=0.0)
     ctx_info.set_name("ctxmeta")
+    ctx_info.set_line_wrap(True)
+    ctx_info.set_max_width_chars(40)
     ctx_scroll = Gtk.ScrolledWindow()
     ctx_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     ctx_scroll.add(ctx_list)
-    ctx_frame = Gtk.Frame()
-    ctx_frame.set_name("ctxframe")
+    pool_tab = {"cur": "ctx"}
     ctx_input_tv = Gtk.TextView()
-    ctx_input_tv.set_name("ctxinput")
+    ctx_input_tv.set_name("fieldtv")
     ctx_input_tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
     ctx_input_tv.set_size_request(-1, 58)
-    for _m, _v in (("left", 8), ("right", 8), ("top", 6), ("bottom", 6)):
+    for _m, _v in (("left", 10), ("right", 48), ("top", 6), ("bottom", 6)):
         getattr(ctx_input_tv, "set_%s_margin" % _m)(_v)
-    ctx_frame.add(ctx_input_tv)
-    pool_tab = {"cur": "ctx"}
+    field_box = Gtk.Box()
+    field_box.set_name("field")
+    field_box.pack_start(ctx_input_tv, True, True, 0)
     pool_send = Gtk.Button()
-    pool_send.set_size_request(38, 38)
-    _send_icon = next(
-        (n for n in ("document-send-symbolic", "mail-send-symbolic")
-         if Gtk.IconTheme.get_default().has_icon(n)), "mail-send-symbolic")
-    pool_send.set_image(Gtk.Image.new_from_icon_name(_send_icon, Gtk.IconSize.BUTTON))
-    pool_inbox = Gtk.Box(spacing=6)
-    pool_inbox.pack_start(ctx_frame, True, True, 0)
-    pool_inbox.pack_start(pool_send, False, False, 0)
+    pool_send.set_size_request(30, 30)
+    pool_send.set_halign(Gtk.Align.END)
+    pool_send.set_valign(Gtk.Align.CENTER)
+    pool_send.set_margin_end(5)
+    pool_send.set_image(load_img("paper-plane.svg", 16, "mail-send-symbolic"))
+    comp_overlay = Gtk.Overlay()
+    comp_overlay.add(field_box)
+    comp_overlay.add_overlay(pool_send)
+    for m, v in (("top", 0), ("bottom", 8), ("start", 8), ("end", 8)):
+        getattr(comp_overlay, "set_margin_%s" % m)(v)
     page_ctx = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     page_ctx.pack_start(ctx_info, False, False, 0)
     page_ctx.pack_start(ctx_scroll, True, True, 0)
@@ -1442,6 +1576,8 @@ def run_gui(shot_path=None):
     rule_scroll.add(rule_list)
     rl_info = Gtk.Label(xalign=0.0)
     rl_info.set_name("ctxmeta")
+    rl_info.set_line_wrap(True)
+    rl_info.set_max_width_chars(40)
     rl_info.set_markup("permanent \u2014 the agent must apply these but can never remove them")
     page_rules = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     page_rules.pack_start(rl_info, False, False, 0)
@@ -1449,12 +1585,18 @@ def run_gui(shot_path=None):
 
     ctx_stack.add_titled(page_ctx, "ctx", "Context")
     ctx_stack.add_titled(page_rules, "rules", "Rules")
+    for m, v in (("top", 2), ("bottom", 6), ("start", 8), ("end", 8)):
+        getattr(ctx_stack, "set_margin_%s" % m)(v)
     _sel_tab("ctx")
-    ctx_side.pack_start(ctx_title, False, False, 0)
-    ctx_side.pack_start(ctx_sub, False, False, 0)
-    ctx_side.pack_start(ctx_tabs, False, False, 0)
-    ctx_side.pack_start(ctx_stack, True, True, 0)
-    ctx_side.pack_start(pool_inbox, False, False, 0)
+    ctx_card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    ctx_card_box.set_name("ctxpanel")
+    for m, v in (("top", 4), ("bottom", 8), ("start", 8), ("end", 8)):
+        getattr(ctx_card_box, "set_margin_%s" % m)(v)
+    ctx_card_box.pack_start(ctx_tabs, False, False, 0)
+    ctx_card_box.pack_start(ctx_stack, True, True, 0)
+    ctx_card_box.pack_start(comp_overlay, False, False, 0)
+    ctx_side.pack_start(ctx_head, False, False, 0)
+    ctx_side.pack_start(ctx_card_box, True, True, 0)
 
     def _tv_text(tv):
         b = tv.get_buffer()
@@ -1497,7 +1639,7 @@ def run_gui(shot_path=None):
                 ctx_list.remove(ch)
             for cid, when, text in pend_items:
                 ctx_list.pack_start(
-                    ctx_card(text, when, "waiting", p["pill_conn"],
+                    ctx_card(cid, text, when, "waiting", p["pill_conn"], p["lbl"],
                              _mk_del(os.path.join(_PEND, cid + ".md"), "ctx"),
                              _mk_save(os.path.join(_PEND, cid + ".md"), "ctx")),
                     False, False, 0)
@@ -1512,7 +1654,7 @@ def run_gui(shot_path=None):
                 rule_list.remove(ch)
             for cid, when, text in rule_items:
                 rule_list.pack_start(
-                    ctx_card(text, when, "permanent", "#8957e5",
+                    ctx_card(cid, text, when, "permanent", "#8957e5", p["lbl"],
                              _mk_del(os.path.join(_RUL, cid + ".md"), "rules"),
                              _mk_save(os.path.join(_RUL, cid + ".md"), "rules")),
                     False, False, 0)
@@ -1578,6 +1720,8 @@ def run_gui(shot_path=None):
     # ---- status bar A: transfer flow + tunnel -------------------------------------
     sbar_a = Gtk.Box(spacing=10)
     sbar_a.set_name("sbar-a")
+    sbar_a.set_margin_top(2)
+    sbar_a.set_margin_bottom(2)
     read_lbl = Gtk.Label()
     read_lbl.set_name("flowlbl")
     write_lbl = Gtk.Label()
@@ -1604,12 +1748,14 @@ def run_gui(shot_path=None):
     vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     vbox.pack_start(toolbar, False, False, 0)
     vbox.pack_start(log_overlay, True, True, 0)
-    vbox.pack_start(sbar_a, False, False, 0)
-    vbox.pack_start(sbar_b, False, False, 0)
     main_h = Gtk.Box()
     main_h.pack_start(vbox, True, True, 0)
     main_h.pack_start(ctx_side, False, False, 0)
-    win.add(main_h)
+    root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    root_box.pack_start(main_h, True, True, 0)
+    root_box.pack_start(sbar_a, False, False, 0)
+    root_box.pack_start(sbar_b, False, False, 0)
+    win.add(root_box)
 
     # ---- transfer-flow drawing -----------------------------------------------------
     def draw_dash(cr, x0, x1, y, direction, last, flux, off):
@@ -1644,9 +1790,6 @@ def run_gui(shot_path=None):
         lbl.set_text(text)
 
     def on_draw(_w, cr):
-        p = state["pal"]
-        cr.set_source_rgb(*p["sbar"])
-        cr.paint()
         y = 12
         draw_dash(cr, 8, 72, y, "left", store.last_read,
                   state["flux_r"], state["off_r"])
@@ -1670,6 +1813,7 @@ def run_gui(shot_path=None):
 
     # ---- tunnel status / actions ------------------------------------------------
     def set_pill(state_name, extra=""):
+        state["pill_state"] = (state_name, extra)
         p = state["pal"]
         colors = {"up": p["pill_up"], "connecting": p["pill_conn"],
                   "failed": p["pill_fail"], "stopped": p["pill_stop"],
@@ -2002,7 +2146,8 @@ def run_gui(shot_path=None):
     win.connect("destroy", Gtk.main_quit)
     rebuild()
     GLib.idle_add(scroll_end)
-    GLib.timeout_add(400, scroll_end)
+    for _d in (400, 1000, 2000):
+        GLib.timeout_add(_d, scroll_end)
     apply_theme(state["mode"])
     set_pill("connecting")
     refresh_tunnel()
@@ -2041,19 +2186,105 @@ def run_gui(shot_path=None):
     _save_side(ctx_btn)
 
     if shot_path:
+        def _test_prep():
+            try:
+                if os.environ.get("AM_TAB") == "rules":
+                    tab_btns["rules"].set_active(True)
+                if os.environ.get("AM_SHOW_FAB"):
+                    follow_state["user_away"] = True
+                    a = sw.get_vadjustment()
+                    if a.get_upper() > a.get_page_size():
+                        a.set_value((a.get_upper() - a.get_page_size()) * 0.5)
+                    logfab_revealer.set_reveal_child(True)
+                if os.environ.get("AM_TEST_EDIT") and _edit_probe:
+                    _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
+                    _eb.emit("clicked")
+                    print("EDITTEST open editor-vis=%s" % _ebox.get_visible())
+                    _etv.get_buffer().set_text("EDITED-BY-TEST")
+                    _eok.emit("clicked")
+                if os.environ.get("AM_CLICK_FAB"):
+                    follow_state["user_away"] = True
+                    a = sw.get_vadjustment()
+                    if a.get_upper() > a.get_page_size():
+                        a.set_value((a.get_upper() - a.get_page_size()) * 0.5)
+                    logfab_revealer.set_reveal_child(True)
+                    print("FABTEST before away=%s fab=%s val=%.0f upper=%.0f" %
+                          (follow_state["user_away"],
+                           logfab_revealer.get_reveal_child(),
+                           a.get_value(), a.get_upper()))
+                    logfab.emit("clicked")
+                if os.environ.get("AM_TEST_DATES"):
+                    follow_state["user_away"] = True
+                    a = sw.get_vadjustment()
+                    if a.get_upper() > a.get_page_size():
+                        a.set_value((a.get_upper() - a.get_page_size()) * 0.5)
+                    print("DATESTEST before line=%s" % _top_visible_line())
+                    date_btn.emit("clicked")
+            except Exception as exc:
+                print("TESTPREP err %r" % exc)
+            return False
+
         def snap():
             try:
                 a = sw.get_vadjustment()
-                print("BOOT-STATE at-end=%s user-away=%s fab=%s lines=%d" %
+                _ei = buf.get_end_iter()
+                _loc = tv.get_iter_location(_ei)
+                print("BOOT-STATE at-end=%s user-away=%s fab=%s lines=%d "
+                      "val=%.0f upper=%.0f page=%.0f "
+                      "faballoc=%dx%d sendalloc=%dx%d "
+                       "tvalloc=%dx%d endy=%d ctxupper=%.0f "
+                       "sidealloc=%d stackalloc=%d sidepref=%d tabspref=%d "
+                       "stackpref=%d comppref=%d mainh=%d vboxw=%d "
+                       "ovlw=%d sww=%d winw=%d" %
                       (a.get_value() + a.get_page_size() >= a.get_upper() - 30,
                        follow_state["user_away"],
                        logfab_revealer.get_reveal_child(),
-                       buf.get_line_count()))
+                       buf.get_line_count(),
+                       a.get_value(), a.get_upper(), a.get_page_size(),
+                       logfab.get_allocated_width(),
+                       logfab.get_allocated_height(),
+                       pool_send.get_allocated_width(),
+                       pool_send.get_allocated_height(),
+                       tv.get_allocated_width(), tv.get_allocated_height(),
+                       _loc.y + _loc.height,
+                       ctx_scroll.get_vadjustment().get_upper(),
+                       ctx_side.get_allocated_width(),
+                       ctx_stack.get_allocated_width(),
+                       ctx_side.get_preferred_width()[1],
+                       ctx_tabs.get_preferred_width()[1],
+                       ctx_stack.get_preferred_width()[1],
+                       comp_overlay.get_preferred_width()[1],
+                       main_h.get_allocated_width(),
+                       vbox.get_allocated_width(),
+                       log_overlay.get_allocated_width(),
+                       sw.get_allocated_width(),
+                       win.get_allocated_width()))
+                if os.environ.get("AM_CLICK_FAB"):
+                    print("FABTEST after away=%s fab=%s val=%.0f upper=%.0f "
+                          "page=%.0f at-end=%s" %
+                          (follow_state["user_away"],
+                           logfab_revealer.get_reveal_child(),
+                           a.get_value(), a.get_upper(), a.get_page_size(),
+                           a.get_value() + a.get_page_size() >=
+                           a.get_upper() - 30))
+                if os.environ.get("AM_TEST_DATES"):
+                    print("DATESTEST after line=%s" % _top_visible_line())
+                if os.environ.get("AM_TEST_EDIT") and _edit_probe:
+                    _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
+                    try:
+                        with open(os.path.join(_PEND, _cid + ".md"),
+                                  encoding="utf-8") as _fh:
+                            _content = _fh.read().strip()
+                    except OSError:
+                        _content = "<err>"
+                    print("EDITTEST after editor-vis=%s saved=%r"
+                          % (_ebox.get_visible(), _content))
             except Exception as exc:
                 print("BOOT-STATE err %r" % exc)
             gw = win.get_window()
             if gw is not None:
                 w, h = gw.get_width(), gw.get_height()
+                print("SHOT-WIN %dx%d" % (w, h))
                 pb = Gdk.pixbuf_get_from_window(gw, 0, 0, w, h)
                 if pb is not None:
                     pb.savev(shot_path, "png", [], [])
@@ -2063,6 +2294,7 @@ def run_gui(shot_path=None):
             else:
                 print("SHOT-FAIL no window")
             Gtk.main_quit()
+        GLib.timeout_add(int(os.environ.get("AM_PREP_DELAY", "800")), _test_prep)
         GLib.timeout_add(int(os.environ.get("AM_SHOT_DELAY", "2500")), snap)
 
     Gtk.main()
