@@ -129,3 +129,11 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
   amber (not green) when active
 - search matches are highlighted inside log lines
 - FAB redrawn as a stem-less chevron, blue to match the send button
+
+### v1.6.0 addendum
+- log timestamps render in local time, Jalali calendar by default; calendar
+  button in the toolbar switches Jalali/Gregorian (display only - stored
+  timestamps remain GMT/UTC)
+- follow hardening: pauses on genuine wheel-scroll up (and scrollbar
+  departure), guard window 1.5s, transitions logged to stderr
+  (/tmp/agent-monitor.log) for diagnosis
