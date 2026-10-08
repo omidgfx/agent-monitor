@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.4"
+VERSION = "1.6.5"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -1372,14 +1372,21 @@ def run_gui(shot_path=None):
                 return (tok, getattr(t, "kind", None))
         return None
 
+    _click_probe = {"handled": 0, "passthrough": 0}
+
     def on_button_press(_tv, event):
         if event.type != Gdk.EventType.BUTTON_PRESS:
+            return False
+        if event.state & Gdk.ModifierType.MOD1_MASK:
+            # Alt held: let the click through so link text can be selected
+            _click_probe["passthrough"] += 1
             return False
         hit = _token_at(event)
         if not hit:
             return False
         tok, kind = hit
         ctrl = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+        _click_probe["handled"] += 1
         if event.button == 2 or (event.button == 1 and ctrl):
             open_token(tok, kind, True)
         elif event.button == 1:
@@ -2445,6 +2452,33 @@ def run_gui(shot_path=None):
                             return False
                         GLib.timeout_add(400, _click_first_reuse)
                     hist_btn.emit("clicked")
+                if os.environ.get("AM_TEST_ALTCLICK"):
+                    def _alt_click():
+                        it = buf.get_start_iter()
+                        tokpos = None
+                        while not it.is_end():
+                            if any(getattr(t, "token", None)
+                                   for t in it.get_tags() or []):
+                                tokpos = it.copy()
+                                break
+                            it.forward_to_tag_toggle(None)
+                        if tokpos is None:
+                            return False
+                        rect = tv.get_iter_location(tokpos)
+                        wx, wy = tv.buffer_to_window_coords(
+                            Gtk.TextWindowType.WIDGET, rect.x + 1, rect.y + 1)
+                        ev = Gdk.Event.new(Gdk.EventType.BUTTON_PRESS)
+                        ev.button.window = tv.get_window(
+                            Gtk.TextWindowType.TEXT)
+                        ev.button.send_event = True
+                        ev.button.x = float(wx)
+                        ev.button.y = float(wy)
+                        ev.button.button = 1
+                        ev.button.state = Gdk.ModifierType.MOD1_MASK
+                        ev.button.time = Gdk.CURRENT_TIME
+                        tv.emit("button-press-event", ev)
+                        return False
+                    GLib.timeout_add(300, _alt_click)
                 if os.environ.get("AM_TEST_PAUSE"):
                     def _try_pause(_n=[0]):
                         if _pause_probe:
@@ -2553,6 +2587,10 @@ def run_gui(shot_path=None):
                           % (_pause_probe[0].get_active()
                              if _pause_probe else None,
                              sorted(paused_ids()) or "(none)"))
+                if os.environ.get("AM_TEST_ALTCLICK"):
+                    print("ALTCLICK handled=%d passthrough=%d"
+                          % (_click_probe["handled"],
+                             _click_probe["passthrough"]))
                 if os.environ.get("AM_TEST_EDIT") and _edit_probe:
                     _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
                     try:
