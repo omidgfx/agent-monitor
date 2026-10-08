@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.8"
+VERSION = "1.6.9"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -709,6 +709,7 @@ def run_gui(shot_path=None):
             "hl_bg": "#e3b341" if dark else "#fff1a8",
             "hl_fg": "#0d1117" if dark else "#24292f",
             "lbl": "#929291" if dark else "#6b6a67",
+            "iconbtn": "#a0a09f" if dark else "#4a4946",
             "border": "#272727" if dark else "#dddcdc",
             "log_bg": "#2a2a2a" if dark else "#e9e8e7",
             "ts": "#5c6773" if dark else "#697077",
@@ -718,7 +719,7 @@ def run_gui(shot_path=None):
             "even": "#262626" if dark else "#e2e1df",
             "link": "#58a6ff" if dark else "#0969da",
             "url": "#d2a8ff" if dark else "#8250df",
-            "idle": (0.545, 0.580, 0.620) if dark else (0.341, 0.376, 0.416),
+            "idle": (0.600, 0.630, 0.670) if dark else (0.260, 0.300, 0.350),
             "green": (0.133, 0.722, 0.369) if dark else (0.10, 0.50, 0.215),
             "pill_up": "#2ea043" if dark else "#1a7f37",
             "pill_conn": "#bb6700" if dark else "#9a6700",
@@ -778,7 +779,7 @@ def run_gui(shot_path=None):
                     border-radius: 12px; }
         #ctxcard { background: %(card2)s; border: 1px solid %(border2)s;
                    border-radius: 10px; }
-        #cardbtn { color: %(lbl)s; background: transparent; border: none;
+        #cardbtn { color: %(iconbtn)s; background: transparent; border: none;
                    padding: 3px; min-width: 0; min-height: 0; }
         #cardbtn:hover { color: %(rd)s; }
         #pausebox { background: transparent; border: none; padding: 1px;
@@ -821,7 +822,7 @@ def run_gui(shot_path=None):
             "pill_bg_c": p["pill_bg_c"], "panel": p["panel"],
             "card": p["card"], "card2": p["card2"], "border2": p["border2"],
             "seg": p["seg"], "seg_on": p["seg_on"], "field": p["field"],
-            "accent": p["accent"], "rd": p["rd"],
+            "accent": p["accent"], "rd": p["rd"], "iconbtn": p["iconbtn"],
         }).encode()
 
     providers = []
@@ -2212,7 +2213,7 @@ def run_gui(shot_path=None):
         intensity = max(glow, 0.3 if active else 0.0)
         _target = p["amber"] if direction == "right" else p["green"]
         cr.set_source_rgb(*mix(p["idle"], _target, intensity))
-        cr.set_line_width(2.0 if glow > 0.05 else 1.5)
+        cr.set_line_width(2.2 if glow > 0.05 else 1.9)
         cr.set_dash([5.0, 4.0], off)
         cr.move_to(x0, y)
         cr.line_to(x1, y)
@@ -2680,6 +2681,13 @@ def run_gui(shot_path=None):
                             _se.set_text("needle")
                         return False
                     GLib.timeout_add(500, _do_search)
+                if os.environ.get("AM_ARROWS_IDLE"):
+                    # force transfer arrows to their idle color for probing
+                    state["flux_r"] = 0.0
+                    state["flux_w"] = 0.0
+                    store.last_read = 0.0
+                    store.last_write = 0.0
+                    arrows.queue_draw()
                 if _want_hist:
                     hist_btn.emit("clicked")
                 if os.environ.get("AM_TEST_ALTCLICK"):
