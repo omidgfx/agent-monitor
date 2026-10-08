@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.7"
+VERSION = "1.6.8"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -1497,6 +1497,7 @@ def run_gui(shot_path=None):
             hlst = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             _sel = {"ids": set()}
             _cards = {}
+            _hay_cache = {}
             _reuse_btns = []
             _del_btns = []
             _sel_toggles = []
@@ -1535,6 +1536,7 @@ def run_gui(shot_path=None):
             def _remove_row(card, cid):
                 hlst.remove(card)
                 _cards.pop(cid, None)
+                _hay_cache.pop(cid, None)
                 _sel["ids"].discard(cid)
                 _hist_probe["n"] = len(hlst.get_children())
                 dhb.props.title = "Picked-up contexts (%d)" % _hist_probe["n"]
@@ -1623,8 +1625,42 @@ def run_gui(shot_path=None):
                 card.pack_start(tx, False, False, 0)
                 hlst.pack_start(card, False, False, 0)
                 _cards[cid] = card
+                _hay_cache[cid] = (when + " " + text).lower()
             hsw.add(hlst)
+
+            sentry = Gtk.SearchEntry()
+            sentry.set_name("field")
+            sentry.set_placeholder_text("Search picked-up contexts")
+            sentry.set_margin_bottom(6)
+            _meta = {}
+
+            nomatch = Gtk.Label(xalign=0.0)
+            nomatch.set_no_show_all(True)
+            nomatch.set_markup("<i>no matches</i>")
+
+            def _on_search(ed):
+                q = ed.get_text().strip().lower()
+                shown = 0
+                for _cid, (_card, _hay) in _meta.items():
+                    vis = (not q) or q in _hay
+                    _card.set_visible(vis)
+                    if vis:
+                        shown += 1
+                if q:
+                    dhb.props.subtitle = "%d of %d" % (shown, len(_meta))
+                    nomatch.set_visible(shown == 0)
+                else:
+                    dhb.props.subtitle = ""
+                    nomatch.set_visible(False)
+
+            sentry.connect("changed", _on_search)
+            for _cid, _card in _cards.items():
+                _meta[_cid] = (_card, _hay_cache[_cid])
+            _hist_probe["sentry"] = sentry
+            _hist_probe["meta"] = _meta
+            body.pack_start(sentry, False, False, 0)
             body.pack_start(hsw, True, True, 0)
+            body.pack_start(nomatch, False, False, 8)
 
             bar = Gtk.Box(spacing=6)
             bar.set_margin_top(6)
@@ -1650,6 +1686,7 @@ def run_gui(shot_path=None):
                     if card is not None:
                         hlst.remove(card)
                         _cards.pop(cid, None)
+                        _hay_cache.pop(cid, None)
                 _sel["ids"].clear()
                 _hist_probe["n"] = len(hlst.get_children())
                 dhb.props.title = "Picked-up contexts (%d)" % _hist_probe["n"]
@@ -1670,6 +1707,7 @@ def run_gui(shot_path=None):
                     except OSError:
                         pass
                 _cards.clear()
+                _hay_cache.clear()
                 _sel["ids"].clear()
                 for ch in list(hlst.get_children()):
                     hlst.remove(ch)
@@ -2601,7 +2639,8 @@ def run_gui(shot_path=None):
                     tab_btns["rules"].set_active(True)
                 _want_hist = any(os.environ.get(k) for k in (
                     "AM_TEST_HISTORY", "AM_TEST_REUSE", "AM_TEST_HISTDEL",
-                    "AM_TEST_HISTSEL", "AM_TEST_HISTDELALL"))
+                    "AM_TEST_HISTSEL", "AM_TEST_HISTDELALL",
+                    "AM_TEST_HISTSEARCH"))
                 if _want_hist:
                     if os.environ.get("AM_TEST_REUSE"):
                         def _click_first_reuse():
@@ -2634,6 +2673,13 @@ def run_gui(shot_path=None):
                             _b.emit("clicked")
                         return False
                     GLib.timeout_add(400, _click_delall)
+                if os.environ.get("AM_TEST_HISTSEARCH"):
+                    def _do_search():
+                        _se = _hist_probe.get("sentry")
+                        if _se is not None:
+                            _se.set_text("needle")
+                        return False
+                    GLib.timeout_add(500, _do_search)
                 if _want_hist:
                     hist_btn.emit("clicked")
                 if os.environ.get("AM_TEST_ALTCLICK"):
@@ -2792,6 +2838,12 @@ def run_gui(shot_path=None):
                     print("HISTDEL read=%d dlg-n=%d mapped=%s"
                           % (len(_ctx_items(_RD)), _hist_probe["n"],
                              _d.get_mapped() if _d is not None else None))
+                if os.environ.get("AM_TEST_HISTSEARCH"):
+                    _mm = _hist_probe.get("meta") or {}
+                    _vis = sum(1 for _c, _h in _mm.values()
+                               if _c.get_visible())
+                    print("HISTSEARCH total=%d visible=%d"
+                          % (len(_mm), _vis))
                 if os.environ.get("AM_TEST_PAUSE"):
                     print("PAUSETEST active=%s paused-file=%s"
                           % (_pause_probe[0].get_active()
