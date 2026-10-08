@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.6"
+VERSION = "1.6.7"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -787,6 +787,10 @@ def run_gui(shot_path=None):
                      border-radius: 999px; min-width: 22px; min-height: 22px;
                      padding: 6px; }
         .savegreen:hover { background: #3fb950; }
+        .delred { background: #da3633; color: #ffffff; border: none;
+                  border-radius: 999px; min-height: 22px; padding: 4px 12px; }
+        .delred:hover { background: #e5534b; }
+        .delred:disabled { opacity: 0.45; }
         #ctxmeta { font-size: 7pt; opacity: 0.8; }
         #ctxtabs { background-color: %(seg)s; border-radius: 8px; padding: 3px; }
         #ctxtabs button { border: none; border-radius: 6px;
@@ -1464,7 +1468,6 @@ def run_gui(shot_path=None):
     _hist_probe = {"n": -1}
 
     def show_history(*_a):
-        _reused = {"v": False}
         items = list(_ctx_items(_RD))
         items.reverse()
         _hist_probe["n"] = len(items)
@@ -1477,6 +1480,9 @@ def run_gui(shot_path=None):
         body = dlg.get_content_area()
         for m, v in (("top", 8), ("bottom", 8), ("start", 8), ("end", 8)):
             getattr(body, "set_margin_%s" % m)(v)
+
+        _reopen = {"v": False}
+
         if not items:
             lbl = Gtk.Label(xalign=0.0)
             lbl.set_markup("<i>nothing picked up yet</i>")
@@ -1486,23 +1492,124 @@ def run_gui(shot_path=None):
             hsw.set_policy(Gtk.PolicyType.AUTOMATIC,
                            Gtk.PolicyType.AUTOMATIC)
             # traditional scrollbar: an overlay scrollbar would cover
-            # the reuse buttons at the right edge of each row
+            # the action buttons inside each card
             hsw.set_property("overlay-scrolling", False)
             hlst = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            _sel = {"ids": set()}
+            _cards = {}
             _reuse_btns = []
+            _del_btns = []
+            _sel_toggles = []
+
+            def _tiny_check_draw(btn, cr):
+                w, h = btn.get_allocated_width(), btn.get_allocated_height()
+                on = btn.get_active()
+                pal = state["pal"]
+                s = 11.0
+                x0, y0 = (w - s) / 2.0, (h - s) / 2.0
+                cr.set_line_join(cairo.LINE_JOIN_ROUND)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                if on:
+                    cr.set_source_rgb(*_hex_rgb(pal["rd"]))
+                    cr.rectangle(x0, y0, s, s)
+                    cr.fill()
+                    cr.set_source_rgb(*_hex_rgb(pal["log_bg"]))
+                    cr.set_line_width(1.5)
+                    cr.move_to(x0 + 2.4, y0 + 5.7)
+                    cr.line_to(x0 + 4.7, y0 + 8.0)
+                    cr.line_to(x0 + 8.7, y0 + 3.1)
+                    cr.stroke()
+                else:
+                    cr.set_source_rgb(*_hex_rgb(pal["lbl"]))
+                    cr.set_line_width(1.1)
+                    cr.rectangle(x0, y0, s, s)
+                    cr.stroke()
+                return True
+
+            def _refresh_counts():
+                n = len(_sel["ids"])
+                del_sel_btn.set_sensitive(n > 0)
+                del_sel_btn.set_label(
+                    "Delete selected (%d)" % n if n else "Delete selected")
+
+            def _remove_row(card, cid):
+                hlst.remove(card)
+                _cards.pop(cid, None)
+                _sel["ids"].discard(cid)
+                _hist_probe["n"] = len(hlst.get_children())
+                dhb.props.title = "Picked-up contexts (%d)" % _hist_probe["n"]
+                _refresh_counts()
+                if not hlst.get_children():
+                    _reopen["v"] = True
+                    dlg.destroy()
+
             for cid, when, text in items:
                 card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
                 card.set_name("ctxcard")
                 for m, v in (("top", 6), ("bottom", 8),
                              ("start", 10), ("end", 10)):
                     getattr(card, "set_margin_%s" % m)(v)
+                head = Gtk.Box(spacing=6)
+                head.set_margin_top(6)
+                head.set_margin_start(4)
+                head.set_margin_end(4)
+                sel = Gtk.ToggleButton()
+                sel.set_name("pausebox")
+                sel.set_size_request(14, 14)
+                sel.set_relief(Gtk.ReliefStyle.NONE)
+                sel.set_tooltip_text("Select for bulk delete")
+                sel.connect("draw", _tiny_check_draw)
+
+                def _sel_toggled(b, _cid=cid):
+                    if b.get_active():
+                        _sel["ids"].add(_cid)
+                    else:
+                        _sel["ids"].discard(_cid)
+                    _refresh_counts()
+
+                sel.connect("toggled", _sel_toggled)
+                _sel_toggles.append(sel)
                 wl = Gtk.Label(xalign=0.0)
                 wl.set_name("ctxmeta")
-                wl.set_margin_start(8)
-                wl.set_margin_end(8)
-                wl.set_margin_top(6)
                 wl.set_markup("<span foreground='%s'>%s</span>"
                               % (state["pal"]["lbl"], ESC(_fmt_when(when))))
+                rb = Gtk.Button()
+                rb.set_image(Gtk.Image.new_from_icon_name(
+                    "edit-undo-symbolic", Gtk.IconSize.BUTTON))
+                rb.set_relief(Gtk.ReliefStyle.NONE)
+                rb.set_name("cardbtn")
+                rb.set_tooltip_text("Put back into the context pool")
+
+                def _reuse(_b, _cid=cid, _card=card):
+                    try:
+                        os.replace(os.path.join(_RD, _cid + ".md"),
+                                   os.path.join(_PEND, _cid + ".md"))
+                        GLib.idle_add(lambda: _remove_row(_card, _cid))
+                    except OSError:
+                        pass
+
+                rb.connect("clicked", _reuse)
+                _reuse_btns.append(rb)
+                db = Gtk.Button()
+                db.set_image(Gtk.Image.new_from_icon_name(
+                    "user-trash-symbolic", Gtk.IconSize.BUTTON))
+                db.set_relief(Gtk.ReliefStyle.NONE)
+                db.set_name("cardbtn")
+                db.set_tooltip_text("Delete")
+
+                def _del(_b, _cid=cid, _card=card):
+                    try:
+                        os.remove(os.path.join(_RD, _cid + ".md"))
+                        GLib.idle_add(lambda: _remove_row(_card, _cid))
+                    except OSError:
+                        pass
+
+                db.connect("clicked", _del)
+                _del_btns.append(db)
+                head.pack_start(sel, False, False, 0)
+                head.pack_start(wl, True, True, 0)
+                head.pack_end(db, False, False, 0)
+                head.pack_end(rb, False, False, 0)
                 tx = Gtk.Label(xalign=0.0)
                 tx.set_name("ctxbody")
                 tx.set_line_wrap(True)
@@ -1512,39 +1619,83 @@ def run_gui(shot_path=None):
                 tx.set_margin_start(8)
                 tx.set_margin_end(8)
                 tx.set_margin_bottom(6)
-                card.pack_start(wl, False, False, 0)
+                card.pack_start(head, False, False, 0)
                 card.pack_start(tx, False, False, 0)
-                rb = Gtk.Button()
-                rb.set_image(Gtk.Image.new_from_icon_name(
-                    "edit-undo-symbolic", Gtk.IconSize.BUTTON))
-                rb.set_relief(Gtk.ReliefStyle.NONE)
-                rb.set_name("cardbtn")
-                rb.set_valign(Gtk.Align.CENTER)
-                rb.set_tooltip_text("Put back into the context pool")
-
-                def _reuse(_b, _cid=cid):
-                    try:
-                        os.replace(os.path.join(_RD, _cid + ".md"),
-                                   os.path.join(_PEND, _cid + ".md"))
-                        _reused["v"] = True
-                    except OSError:
-                        pass
-                    dlg.destroy()
-
-                rb.connect("clicked", _reuse)
-                _reuse_btns.append(rb)
-                row = Gtk.Box(spacing=6)
-                row.pack_start(card, True, True, 0)
-                row.pack_start(rb, False, False, 0)
-                hlst.pack_start(row, False, False, 0)
+                hlst.pack_start(card, False, False, 0)
+                _cards[cid] = card
             hsw.add(hlst)
             body.pack_start(hsw, True, True, 0)
+
+            bar = Gtk.Box(spacing=6)
+            bar.set_margin_top(6)
+            selall = Gtk.ToggleButton.new_with_mnemonic("Select _all")
+            selall.set_tooltip_text("Select every card for bulk delete")
+
+            def _selall_toggled(b):
+                for t in _sel_toggles:
+                    t.set_active(b.get_active())
+                _refresh_counts()
+
+            del_sel_btn = Gtk.Button.new_with_mnemonic("_Delete selected")
+            del_sel_btn.get_style_context().add_class("delred")
+            del_sel_btn.set_tooltip_text("Delete every selected context")
+
+            def _del_sel(_b):
+                for cid in list(_sel["ids"]):
+                    try:
+                        os.remove(os.path.join(_RD, cid + ".md"))
+                    except OSError:
+                        pass
+                    card = _cards.get(cid)
+                    if card is not None:
+                        hlst.remove(card)
+                        _cards.pop(cid, None)
+                _sel["ids"].clear()
+                _hist_probe["n"] = len(hlst.get_children())
+                dhb.props.title = "Picked-up contexts (%d)" % _hist_probe["n"]
+                _refresh_counts()
+                if not hlst.get_children():
+                    _reopen["v"] = True
+                    dlg.destroy()
+
+            del_sel_btn.connect("clicked", _del_sel)
+            del_all_btn = Gtk.Button.new_with_mnemonic("Delete _all")
+            del_all_btn.get_style_context().add_class("delred")
+            del_all_btn.set_tooltip_text("Clear every picked-up context")
+
+            def _del_all(_b):
+                for cid in list(_cards.keys()):
+                    try:
+                        os.remove(os.path.join(_RD, cid + ".md"))
+                    except OSError:
+                        pass
+                _cards.clear()
+                _sel["ids"].clear()
+                for ch in list(hlst.get_children()):
+                    hlst.remove(ch)
+                _hist_probe["n"] = 0
+                dhb.props.title = "Picked-up contexts (0)"
+                _refresh_counts()
+                _reopen["v"] = True
+                dlg.destroy()
+
+            del_all_btn.connect("clicked", _del_all)
+            selall.connect("toggled", _selall_toggled)
+            bar.pack_start(selall, False, False, 0)
+            bar.pack_end(del_all_btn, False, False, 0)
+            bar.pack_end(del_sel_btn, False, False, 0)
+            body.pack_start(bar, False, False, 0)
             _hist_probe["btns"] = _reuse_btns
+            _hist_probe["del_btns"] = _del_btns
+            _hist_probe["sel_toggles"] = _sel_toggles
+            _hist_probe["del_sel_btn"] = del_sel_btn
+            _hist_probe["del_all_btn"] = del_all_btn
+            _refresh_counts()
         dlg.show_all()
         _hist_probe["dlg"] = dlg
         dlg.run()
         dlg.destroy()
-        if _reused["v"]:
+        if _reopen["v"]:
             show_history()
             return
 
@@ -2448,8 +2599,10 @@ def run_gui(shot_path=None):
             try:
                 if os.environ.get("AM_TAB") == "rules":
                     tab_btns["rules"].set_active(True)
-                if os.environ.get("AM_TEST_HISTORY") or \
-                        os.environ.get("AM_TEST_REUSE"):
+                _want_hist = any(os.environ.get(k) for k in (
+                    "AM_TEST_HISTORY", "AM_TEST_REUSE", "AM_TEST_HISTDEL",
+                    "AM_TEST_HISTSEL", "AM_TEST_HISTDELALL"))
+                if _want_hist:
                     if os.environ.get("AM_TEST_REUSE"):
                         def _click_first_reuse():
                             _bs = _hist_probe.get("btns") or []
@@ -2457,6 +2610,31 @@ def run_gui(shot_path=None):
                                 _bs[0].emit("clicked")
                             return False
                         GLib.timeout_add(400, _click_first_reuse)
+                if os.environ.get("AM_TEST_HISTDEL"):
+                    def _click_del():
+                        _bs = _hist_probe.get("del_btns") or []
+                        if len(_bs) > 1:
+                            _bs[1].emit("clicked")
+                        return False
+                    GLib.timeout_add(400, _click_del)
+                if os.environ.get("AM_TEST_HISTSEL"):
+                    def _sel_two_then_del():
+                        _ts = _hist_probe.get("sel_toggles") or []
+                        for t in _ts[:2]:
+                            t.set_active(True)
+                        _b = _hist_probe.get("del_sel_btn")
+                        if _b is not None:
+                            _b.emit("clicked")
+                        return False
+                    GLib.timeout_add(500, _sel_two_then_del)
+                if os.environ.get("AM_TEST_HISTDELALL"):
+                    def _click_delall():
+                        _b = _hist_probe.get("del_all_btn")
+                        if _b is not None:
+                            _b.emit("clicked")
+                        return False
+                    GLib.timeout_add(400, _click_delall)
+                if _want_hist:
                     hist_btn.emit("clicked")
                 if os.environ.get("AM_TEST_ALTCLICK"):
                     def _alt_click():
@@ -2607,6 +2785,13 @@ def run_gui(shot_path=None):
                 if os.environ.get("AM_TEST_REUSE"):
                     print("REUSETEST pending=%d read=%d"
                           % (len(_ctx_items(_PEND)), len(_ctx_items(_RD))))
+                if os.environ.get("AM_TEST_HISTDEL") or \
+                        os.environ.get("AM_TEST_HISTSEL") or \
+                        os.environ.get("AM_TEST_HISTDELALL"):
+                    _d = _hist_probe.get("dlg")
+                    print("HISTDEL read=%d dlg-n=%d mapped=%s"
+                          % (len(_ctx_items(_RD)), _hist_probe["n"],
+                             _d.get_mapped() if _d is not None else None))
                 if os.environ.get("AM_TEST_PAUSE"):
                     print("PAUSETEST active=%s paused-file=%s"
                           % (_pause_probe[0].get_active()
