@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.12"
+VERSION = "1.6.13"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -722,9 +722,9 @@ def run_gui(shot_path=None):
             "idle": (0.600, 0.630, 0.670) if dark else (0.260, 0.300, 0.350),
             "arr_read": (0.133, 0.722, 0.369) if dark else (0.037, 0.412, 0.854),
             "arr_write": (0.890, 0.702, 0.255) if dark else (0.820, 0.440, 0.050),
-            # idle arrows: gray like the flow labels, 3%% lighter
-            "arr_read_idle": (0.600, 0.630, 0.670) if dark else (0.435, 0.431, 0.424),
-            "arr_write_idle": (0.600, 0.630, 0.670) if dark else (0.435, 0.431, 0.424),
+            # idle arrows: label gray lifted 20%% toward white in light
+            "arr_read_idle": (0.600, 0.630, 0.670) if dark else (0.549, 0.545, 0.537),
+            "arr_write_idle": (0.600, 0.630, 0.670) if dark else (0.549, 0.545, 0.537),
             "green": (0.133, 0.722, 0.369) if dark else (0.10, 0.50, 0.215),
             "pill_up": "#2ea043" if dark else "#1a7f37",
             "pill_conn": "#bb6700" if dark else "#9a6700",
@@ -1925,13 +1925,21 @@ def run_gui(shot_path=None):
         etv = Gtk.TextView()
         etv.set_name("fieldtv")
         etv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        etv.set_size_request(-1, 70)
         for _m, _v in (("left", 8), ("right", 8), ("top", 6), ("bottom", 6)):
             getattr(etv, "set_%s_margin" % _m)(_v)
         etv.get_buffer().set_text(text)
+        # fixed width + max height + vertical scrolling: a bare TextView
+        # reports the longest line as its natural width and would widen
+        # the whole pool while editing
+        esw = Gtk.ScrolledWindow()
+        esw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        esw.set_size_request(-1, 70)
+        esw.set_max_content_height(150)
+        esw.set_propagate_natural_height(True)
+        esw.add(etv)
         ebox = Gtk.Box()
         ebox.set_name("field")
-        ebox.pack_start(etv, True, True, 0)
+        ebox.pack_start(esw, True, True, 0)
         ebtns = Gtk.Box(spacing=6)
         ebtns.set_halign(Gtk.Align.END)
         eok = Gtk.Button()
@@ -1962,6 +1970,7 @@ def run_gui(shot_path=None):
             t = b.get_text(b.get_start_iter(), b.get_end_iter(), False).strip()
             if t and t != text:
                 on_save(t)
+                stop_edit()
             else:
                 stop_edit()
 
@@ -1992,12 +2001,19 @@ def run_gui(shot_path=None):
     ctx_input_tv = Gtk.TextView()
     ctx_input_tv.set_name("fieldtv")
     ctx_input_tv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-    ctx_input_tv.set_size_request(-1, 58)
     for _m, _v in (("left", 10), ("right", 48), ("top", 6), ("bottom", 6)):
         getattr(ctx_input_tv, "set_%s_margin" % _m)(_v)
+    # fixed width + max height + vertical scrolling (same reason as the
+    # card editor)
+    csw = Gtk.ScrolledWindow()
+    csw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    csw.set_size_request(-1, 58)
+    csw.set_max_content_height(110)
+    csw.set_propagate_natural_height(True)
+    csw.add(ctx_input_tv)
     field_box = Gtk.Box()
     field_box.set_name("field")
-    field_box.pack_start(ctx_input_tv, True, True, 0)
+    field_box.pack_start(csw, True, True, 0)
     pool_send = Gtk.Button()
     pool_send.set_size_request(30, 30)
     pool_send.set_halign(Gtk.Align.END)
@@ -2750,6 +2766,14 @@ def run_gui(shot_path=None):
                     print("EDITTEST open editor-vis=%s" % _ebox.get_visible())
                     _etv.get_buffer().set_text("EDITED-BY-TEST")
                     _eok.emit("clicked")
+                if os.environ.get("AM_TEST_EDIT_OPEN") and _edit_probe:
+                    # open the editor with a long unbroken line and keep it
+                    # open: the pool width must not change (BOOT-STATE
+                    # sidealloc should stay the same as an idle run)
+                    _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
+                    _eb.emit("clicked")
+                    _etv.get_buffer().set_text(
+                        "LONG-EDIT-" + "x" * 400 + "-line")
                 if os.environ.get("AM_CLICK_FAB"):
                     follow_state["user_away"] = True
                     a = sw.get_vadjustment()
@@ -2879,6 +2903,15 @@ def run_gui(shot_path=None):
                         _content = "<err>"
                     print("EDITTEST after editor-vis=%s saved=%r"
                           % (_ebox.get_visible(), _content))
+                if os.environ.get("AM_TEST_EDIT_OPEN") and _edit_probe:
+                    _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
+                    _sw = _etv.get_ancestor(Gtk.ScrolledWindow)
+                    print("EDITOPEN vis=%s tv=%dx%d sw=%s" % (
+                        _ebox.get_visible(), _etv.get_allocated_width(),
+                        _etv.get_allocated_height(),
+                        "%dx%d" % (_sw.get_allocated_width(),
+                                   _sw.get_allocated_height())
+                        if _sw is not None else None))
             except Exception as exc:
                 print("BOOT-STATE err %r" % exc)
             gw = win.get_window()
