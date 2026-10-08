@@ -18,6 +18,8 @@ CLI:
 """
 
 import datetime as _dt
+import cairo
+import fcntl
 import json
 import os
 import re
@@ -35,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.1"
+VERSION = "1.6.4"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -532,12 +534,43 @@ def _ctx_items(d):
     return out
 
 
+def _paused_path():
+    return os.path.join(HOME, ".config", "agent-monitor", "paused.json")
+
+
+def paused_ids():
+    """Context ids the owner paused - the agent must not pick them up."""
+    try:
+        with open(_paused_path(), encoding="utf-8") as fh:
+            v = json.load(fh)
+        if isinstance(v, list):
+            return set(x for x in v if isinstance(x, str))
+    except Exception:
+        pass
+    return set()
+
+
+def set_paused(ids):
+    try:
+        os.makedirs(os.path.dirname(_paused_path()), exist_ok=True)
+        with open(_paused_path(), "w", encoding="utf-8") as fh:
+            json.dump(sorted(ids), fh)
+    except OSError:
+        pass
+
+
 def ctx_take(base=None):
-    """Return (new_items, rules). Moves pending -> read (rules stay forever)."""
+    """Return (new_items, rules). Moves pending -> read (rules stay forever).
+
+    Paused contexts are left in pending for a later pickup.
+    """
     ctx_ensure(base)
     pend, rd, rul = _ctx_dirs(base)
+    skip = paused_ids()
     new = []
     for cid, when, text in list(_ctx_items(pend)):
+        if cid in skip:
+            continue
         try:
             os.replace(os.path.join(pend, cid + ".md"), os.path.join(rd, cid + ".md"))
             new.append((cid, when, text))
@@ -636,6 +669,21 @@ def run_gui(shot_path=None):
     THEME_FILE = os.path.join(CFG_DIR, "theme")
     DATES_FILE = os.path.join(CFG_DIR, "dates")
 
+    # single-instance guard (screenshot/test mode is exempt)
+    _lock_keepalive = []
+    if not shot_path:
+        os.makedirs(CFG_DIR, exist_ok=True)
+        try:
+            _lf = open(os.path.join(CFG_DIR, "singleton.lock"), "w")
+            fcntl.flock(_lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lf.write(str(os.getpid()))
+            _lf.flush()
+            _lock_keepalive.append(_lf)
+        except OSError:
+            print("agent-monitor is already running - keeping that instance",
+                  file=sys.stderr)
+            return 1
+
     def mix(a, b, t):
         return tuple(a[i] + (b[i] - a[i]) * t for i in range(3))
 
@@ -662,12 +710,12 @@ def run_gui(shot_path=None):
             "hl_fg": "#0d1117" if dark else "#24292f",
             "lbl": "#929291" if dark else "#6b6a67",
             "border": "#272727" if dark else "#dddcdc",
-            "log_bg": "#0d1117" if dark else "#ffffff",
+            "log_bg": "#2a2a2a" if dark else "#e9e8e7",
             "ts": "#5c6773" if dark else "#697077",
             "user": "#7aa2f7" if dark else "#0550ae",
             "rd": "#c9d1d9" if dark else "#24292f",
             "wr": "#e3b341" if dark else "#9a6700",
-            "even": "#1a2333" if dark else "#f6f8fa",
+            "even": "#262626" if dark else "#e2e1df",
             "link": "#58a6ff" if dark else "#0969da",
             "url": "#d2a8ff" if dark else "#8250df",
             "idle": (0.545, 0.580, 0.620) if dark else (0.341, 0.376, 0.416),
@@ -733,6 +781,12 @@ def run_gui(shot_path=None):
         #cardbtn { color: %(lbl)s; background: transparent; border: none;
                    padding: 3px; min-width: 0; min-height: 0; }
         #cardbtn:hover { color: %(rd)s; }
+        #pausebox { background: transparent; border: none; padding: 1px;
+                    min-width: 0; min-height: 0; }
+        .savegreen { background: #2ea043; color: #ffffff; border: none;
+                     border-radius: 999px; min-width: 22px; min-height: 22px;
+                     padding: 6px; }
+        .savegreen:hover { background: #3fb950; }
         #ctxmeta { font-size: 7pt; opacity: 0.8; }
         #ctxtabs { background-color: %(seg)s; border-radius: 8px; padding: 3px; }
         #ctxtabs button { border: none; border-radius: 6px;
@@ -984,9 +1038,9 @@ def run_gui(shot_path=None):
     log_overlay.add(sw)
     log_overlay.add_overlay(logfab_revealer)
     log_overlay.set_margin_start(8)
-    log_overlay.set_margin_end(5)
+    log_overlay.set_margin_end(4)
     log_overlay.set_margin_top(2)
-    log_overlay.set_margin_bottom(5)
+    log_overlay.set_margin_bottom(8)
 
     status = Gtk.Label(xalign=0.0)
     status.set_ellipsize(Pango.EllipsizeMode.END)
@@ -1053,8 +1107,7 @@ def run_gui(shot_path=None):
             p = state["pal"]
             for kind, a, b, tok in find_tokens(cmd):
                 t = buf.create_tag(
-                    None, foreground=p["url"] if kind == "url" else p["link"],
-                    underline=Pango.Underline.SINGLE)
+                    None, foreground=p["url"] if kind == "url" else p["link"])
                 t.token = tok
                 t.kind = kind
                 buf.apply_tag(t, buf.get_iter_at_offset(cmd_start + a),
@@ -1066,8 +1119,7 @@ def run_gui(shot_path=None):
             p = state["pal"]
             for kind, a, b, tok in find_tokens(ln):
                 t = buf.create_tag(
-                    None, foreground=p["url"] if kind == "url" else p["link"],
-                    underline=Pango.Underline.SINGLE)
+                    None, foreground=p["url"] if kind == "url" else p["link"])
                 t.token = tok
                 t.kind = kind
                 buf.apply_tag(t, buf.get_iter_at_offset(cmd_start + a),
@@ -1106,7 +1158,8 @@ def run_gui(shot_path=None):
             insert_line(ln)
         refresh_status()
 
-    follow_state = {"user_away": False, "auto_until": 0.0, "want_bottom": False}
+    follow_state = {"user_away": False, "auto_until": 0.0, "want_bottom": False,
+                "last_val": 0.0, "last_auto_ts": 0.0}
 
     def _top_visible_line():
         try:
@@ -1133,6 +1186,8 @@ def run_gui(shot_path=None):
         mark = buf.create_mark(None, buf.get_end_iter())
         tv.scroll_mark_onscreen(mark)
         buf.delete_mark(mark)
+        follow_state["last_val"] = a.get_value()
+        follow_state["last_auto_ts"] = time.time()
 
     def scroll_end():
         GLib.idle_add(_scroll_end_now)
@@ -1166,22 +1221,31 @@ def run_gui(shot_path=None):
 
     def _on_vadj_value(vadj):
         a = sw.get_vadjustment()
-        at_bottom = a.get_value() + a.get_page_size() >= a.get_upper() - 30
+        val = a.get_value()
+        at_bottom = val + a.get_page_size() >= a.get_upper() - 30
         if time.time() < follow_state["auto_until"]:
-            if (at_bottom and follow_state["user_away"]
-                    and follow_state["want_bottom"]):
-                print("follow: user_away=False via vadj auto at bottom",
+            if (not at_bottom
+                    and val < follow_state["last_val"] - 4.0
+                    and time.time() - follow_state["last_auto_ts"] > 0.08):
+                # auto-scroll only ever moves the view DOWN; a move up
+                # while the guard is active must be the user scrolling
+                # (the brief window right after an auto-scroll is skipped:
+                # the text view may jump there to bring its cursor onscreen)
+                print("follow: user_away=True via vadj up during guard "
+                      "(val=%.0f last=%.0f)" % (val, follow_state["last_val"]),
                       file=sys.stderr)
-                follow_state["user_away"] = False
+                follow_state["user_away"] = True
                 follow_state["want_bottom"] = False
                 _update_fab()
+            follow_state["last_val"] = val
             return
         if follow_state["user_away"] != (not at_bottom):
             print("follow: user_away=%s via vadj (val=%.0f upper=%.0f)" %
-                  (not at_bottom, a.get_value(), a.get_upper()), file=sys.stderr)
+                  (not at_bottom, val, a.get_upper()), file=sys.stderr)
         follow_state["user_away"] = not at_bottom
         if follow_state["user_away"]:
             follow_state["want_bottom"] = False
+        follow_state["last_val"] = val
         _update_fab()
 
     def _on_wheel(_w, event):
@@ -1350,7 +1414,7 @@ def run_gui(shot_path=None):
     ctx_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     ctx_side.set_name("ctxside")
     ctx_side.set_size_request(316, -1)
-    for m, v in (("top", 2), ("bottom", 5), ("start", 5), ("end", 8)):
+    for m, v in (("top", 2), ("bottom", 8), ("start", 4), ("end", 8)):
         getattr(ctx_side, "set_margin_%s" % m)(v)
 
     ctx_title = Gtk.Label(xalign=0.0)
@@ -1361,11 +1425,120 @@ def run_gui(shot_path=None):
     ctx_sub.set_markup(
         "<small>notes \u2192 the agent picks them up at its next break</small>")
     ctx_sub.get_style_context().add_class("dim-label")
-    ctx_head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-    for m, v in (("top", 8), ("bottom", 0), ("start", 12), ("end", 12)):
+    _head_txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    _head_txt.pack_start(ctx_title, False, False, 0)
+    _head_txt.pack_start(ctx_sub, False, False, 0)
+    hist_btn = Gtk.Button()
+    _hist_icon = next(
+        (n for n in ("document-open-recent-symbolic", "document-open-symbolic",
+                     "view-list-symbolic")
+         if Gtk.IconTheme.get_default().has_icon(n)),
+        "document-open-recent-symbolic")
+    hist_btn.set_image(Gtk.Image.new_from_icon_name(
+        _hist_icon, Gtk.IconSize.BUTTON))
+    hist_btn.set_relief(Gtk.ReliefStyle.NONE)
+    hist_btn.set_name("cardbtn")
+    hist_btn.set_tooltip_text("Picked-up contexts")
+    ctx_head = Gtk.Box(spacing=6)
+    for m, v in (("top", 8), ("bottom", 0), ("start", 12), ("end", 8)):
         getattr(ctx_head, "set_margin_%s" % m)(v)
-    ctx_head.pack_start(ctx_title, False, False, 0)
-    ctx_head.pack_start(ctx_sub, False, False, 0)
+    ctx_head.pack_start(_head_txt, True, True, 0)
+    ctx_head.pack_start(hist_btn, False, False, 0)
+
+    def _fmt_when(w):
+        try:
+            d = _dt.date(int(w[0:4]), int(w[4:6]), int(w[6:8]))
+            ds = (jalali_str(d) if state["dates"] == "jalali"
+                  else d.strftime("%Y-%m-%d"))
+            return "%s %s:%s" % (ds, w[9:11], w[11:13])
+        except Exception:
+            return w
+
+    _hist_probe = {"n": -1}
+
+    def show_history(*_a):
+        _reused = {"v": False}
+        items = list(_ctx_items(_RD))
+        items.reverse()
+        _hist_probe["n"] = len(items)
+        dlg = Gtk.Dialog(transient_for=win, modal=True)
+        dlg.set_default_size(460, 520)
+        dhb = Gtk.HeaderBar()
+        dhb.set_show_close_button(True)
+        dhb.props.title = "Picked-up contexts (%d)" % len(items)
+        dlg.set_titlebar(dhb)
+        body = dlg.get_content_area()
+        for m, v in (("top", 8), ("bottom", 8), ("start", 8), ("end", 8)):
+            getattr(body, "set_margin_%s" % m)(v)
+        if not items:
+            lbl = Gtk.Label(xalign=0.0)
+            lbl.set_markup("<i>nothing picked up yet</i>")
+            body.pack_start(lbl, False, False, 16)
+        else:
+            hsw = Gtk.ScrolledWindow()
+            hsw.set_policy(Gtk.PolicyType.AUTOMATIC,
+                           Gtk.PolicyType.AUTOMATIC)
+            hlst = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            _reuse_btns = []
+            for cid, when, text in items:
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+                card.set_name("ctxcard")
+                for m, v in (("top", 6), ("bottom", 8),
+                             ("start", 10), ("end", 10)):
+                    getattr(card, "set_margin_%s" % m)(v)
+                wl = Gtk.Label(xalign=0.0)
+                wl.set_name("ctxmeta")
+                wl.set_margin_start(8)
+                wl.set_margin_end(8)
+                wl.set_margin_top(6)
+                wl.set_markup("<span foreground='%s'>%s</span>"
+                              % (state["pal"]["lbl"], ESC(_fmt_when(when))))
+                tx = Gtk.Label(xalign=0.0)
+                tx.set_name("ctxbody")
+                tx.set_line_wrap(True)
+                tx.set_max_width_chars(44)
+                tx.set_selectable(True)
+                tx.set_text(text[:400])
+                tx.set_margin_start(8)
+                tx.set_margin_end(8)
+                tx.set_margin_bottom(6)
+                card.pack_start(wl, False, False, 0)
+                card.pack_start(tx, False, False, 0)
+                rb = Gtk.Button()
+                rb.set_image(Gtk.Image.new_from_icon_name(
+                    "edit-undo-symbolic", Gtk.IconSize.BUTTON))
+                rb.set_relief(Gtk.ReliefStyle.NONE)
+                rb.set_name("cardbtn")
+                rb.set_valign(Gtk.Align.CENTER)
+                rb.set_tooltip_text("Put back into the context pool")
+
+                def _reuse(_b, _cid=cid):
+                    try:
+                        os.replace(os.path.join(_RD, _cid + ".md"),
+                                   os.path.join(_PEND, _cid + ".md"))
+                        _reused["v"] = True
+                    except OSError:
+                        pass
+                    dlg.destroy()
+
+                rb.connect("clicked", _reuse)
+                _reuse_btns.append(rb)
+                row = Gtk.Box(spacing=6)
+                row.pack_start(card, True, True, 0)
+                row.pack_start(rb, False, False, 0)
+                hlst.pack_start(row, False, False, 0)
+            hsw.add(hlst)
+            body.pack_start(hsw, True, True, 0)
+            _hist_probe["btns"] = _reuse_btns
+        dlg.show_all()
+        _hist_probe["dlg"] = dlg
+        dlg.run()
+        dlg.destroy()
+        if _reused["v"]:
+            show_history()
+            return
+
+    hist_btn.connect("clicked", show_history)
     ctx_stack = Gtk.Stack()
     ctx_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
     ctx_tabs = Gtk.Box(spacing=2)
@@ -1411,14 +1584,74 @@ def run_gui(shot_path=None):
     tab_btns["rules"].connect("toggled", _tab_cbs["rules"])
 
     _edit_probe = []
+    _pause_probe = []
 
-    def ctx_card(cid, text, when, badge, badge_hex, dim_hex, on_delete, on_save):
+    def _hex_rgb(s):
+        return tuple(int(s[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+
+    def ctx_card(cid, text, when, badge, badge_hex, dim_hex, on_delete, on_save,
+                 pausable=False):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.set_name("ctxcard")
         header = Gtk.Box(spacing=6)
         header.set_margin_top(6)
         header.set_margin_start(8)
         header.set_margin_end(6)
+
+        pause = None
+        if pausable:
+            pause = Gtk.ToggleButton()
+            pause.set_name("pausebox")
+            pause.set_size_request(14, 14)
+            pause.set_relief(Gtk.ReliefStyle.NONE)
+            pause.set_active(cid not in paused_ids())
+
+            def _pause_draw(btn, cr):
+                w, h = btn.get_allocated_width(), btn.get_allocated_height()
+                on = btn.get_active()
+                pal = state["pal"]
+                s = 11.0
+                x0, y0 = (w - s) / 2.0, (h - s) / 2.0
+                cr.set_line_join(cairo.LINE_JOIN_ROUND)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                if on:
+                    cr.set_source_rgb(*_hex_rgb(pal["rd"]))
+                    cr.rectangle(x0, y0, s, s)
+                    cr.fill()
+                    cr.set_source_rgb(*_hex_rgb(pal["log_bg"]))
+                    cr.set_line_width(1.5)
+                    cr.move_to(x0 + 2.4, y0 + 5.7)
+                    cr.line_to(x0 + 4.7, y0 + 8.0)
+                    cr.line_to(x0 + 8.7, y0 + 3.1)
+                    cr.stroke()
+                else:
+                    cr.set_source_rgb(*_hex_rgb(pal["lbl"]))
+                    cr.set_line_width(1.1)
+                    cr.rectangle(x0, y0, s, s)
+                    cr.stroke()
+                return True
+
+            pause.connect("draw", _pause_draw)
+
+            def _pause_toggled(btn):
+                ids = paused_ids()
+                if btn.get_active():
+                    ids.discard(cid)
+                    card.set_opacity(1.0)
+                else:
+                    ids.add(cid)
+                    card.set_opacity(0.55)
+                set_paused(ids)
+                refresh_ctx_tabs()
+
+            pause.connect("toggled", _pause_toggled)
+            pause.set_tooltip_text(
+                "active \u2014 the agent picks this up" if pause.get_active()
+                else "paused \u2014 the agent will not pick this up")
+            if cid in paused_ids():
+                card.set_opacity(0.55)
+            _pause_probe.append(pause)
+
         arrow = Gtk.ToggleButton()
         arrow.set_relief(Gtk.ReliefStyle.NONE)
         arrow.set_name("cardbtn")
@@ -1446,7 +1679,7 @@ def run_gui(shot_path=None):
         ml.set_name("ctxmeta")
         ml.set_markup("<span foreground='%s' weight='bold'>%s</span>"
                       " <span foreground='%s'>\u00b7 %s</span>"
-                      % (badge_hex, badge, dim_hex, when))
+                      % (badge_hex, badge, dim_hex, ESC(_fmt_when(when))))
         tb = Gtk.Button()
         tb.set_image(Gtk.Image.new_from_icon_name("user-trash-symbolic", Gtk.IconSize.BUTTON))
         tb.set_relief(Gtk.ReliefStyle.NONE)
@@ -1458,6 +1691,8 @@ def run_gui(shot_path=None):
         eb.set_relief(Gtk.ReliefStyle.NONE)
         eb.set_name("cardbtn")
         eb.set_tooltip_text("Edit")
+        if pause is not None:
+            header.pack_start(pause, False, False, 0)
         header.pack_start(arrow, False, False, 0)
         header.pack_start(title, True, True, 0)
         header.pack_start(ml, False, False, 0)
@@ -1495,8 +1730,9 @@ def run_gui(shot_path=None):
         ebtns = Gtk.Box(spacing=6)
         ebtns.set_halign(Gtk.Align.END)
         eok = Gtk.Button()
-        eok.set_image(Gtk.Image.new_from_icon_name("emblem-ok-symbolic", Gtk.IconSize.BUTTON))
-        eok.get_style_context().add_class("sendctx")
+        eok.set_image(Gtk.Image.new_from_icon_name(
+            "media-floppy-symbolic", Gtk.IconSize.BUTTON))
+        eok.get_style_context().add_class("savegreen")
         eok.set_tooltip_text("Save")
         eno = Gtk.Button()
         eno.set_image(Gtk.Image.new_from_icon_name("window-close-symbolic", Gtk.IconSize.BUTTON))
@@ -1590,7 +1826,7 @@ def run_gui(shot_path=None):
     _sel_tab("ctx")
     ctx_card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     ctx_card_box.set_name("ctxpanel")
-    for m, v in (("top", 4), ("bottom", 8), ("start", 8), ("end", 8)):
+    for m, v in (("top", 8), ("bottom", 8), ("start", 8), ("end", 8)):
         getattr(ctx_card_box, "set_margin_%s" % m)(v)
     ctx_card_box.pack_start(ctx_tabs, False, False, 0)
     ctx_card_box.pack_start(ctx_stack, True, True, 0)
@@ -1637,15 +1873,24 @@ def run_gui(shot_path=None):
             sig_last["ctx"] = sig
             for ch in list(ctx_list.get_children()):
                 ctx_list.remove(ch)
+            del _pause_probe[:]
+
             for cid, when, text in pend_items:
                 ctx_list.pack_start(
                     ctx_card(cid, text, when, "waiting", p["pill_conn"], p["lbl"],
                              _mk_del(os.path.join(_PEND, cid + ".md"), "ctx"),
-                             _mk_save(os.path.join(_PEND, cid + ".md"), "ctx")),
+                             _mk_save(os.path.join(_PEND, cid + ".md"), "ctx"),
+                             pausable=True),
                     False, False, 0)
             ctx_list.show_all()
-            ctx_info.set_markup("waiting: %d \u00b7 picked up so far: %d (hidden)"
-                                % (len(pend_items), read_n))
+        act = [i for i in pend_items if i[0] not in paused_ids()]
+        ppaused = len(pend_items) - len(act)
+        ctx_info.set_markup(
+            "waiting: %d%s \u00b7 picked up: %d"
+            % (len(act),
+               (" \u00b7 <span foreground='%s'>paused: %d</span>"
+                % (p["lbl"], ppaused)) if ppaused else "",
+               read_n))
         rule_items = _ctx_items(_RUL)
         rsig = tuple(i[0] for i in rule_items)
         if rsig != sig_last["rules"]:
@@ -2190,12 +2435,35 @@ def run_gui(shot_path=None):
             try:
                 if os.environ.get("AM_TAB") == "rules":
                     tab_btns["rules"].set_active(True)
+                if os.environ.get("AM_TEST_HISTORY") or \
+                        os.environ.get("AM_TEST_REUSE"):
+                    if os.environ.get("AM_TEST_REUSE"):
+                        def _click_first_reuse():
+                            _bs = _hist_probe.get("btns") or []
+                            if _bs:
+                                _bs[0].emit("clicked")
+                            return False
+                        GLib.timeout_add(400, _click_first_reuse)
+                    hist_btn.emit("clicked")
+                if os.environ.get("AM_TEST_PAUSE"):
+                    def _try_pause(_n=[0]):
+                        if _pause_probe:
+                            _pause_probe[0].set_active(False)
+                            return False
+                        _n[0] += 1
+                        return _n[0] < 20
+                    GLib.timeout_add(150, _try_pause)
                 if os.environ.get("AM_SHOW_FAB"):
                     follow_state["user_away"] = True
                     a = sw.get_vadjustment()
                     if a.get_upper() > a.get_page_size():
                         a.set_value((a.get_upper() - a.get_page_size()) * 0.5)
                     logfab_revealer.set_reveal_child(True)
+                if os.environ.get("AM_TEST_GUARD"):
+                    # simulate the user scrolling up while the auto-scroll
+                    # guard window is still active (right after a FAB click)
+                    _a = sw.get_vadjustment()
+                    _a.set_value(max(0.0, _a.get_value() - 400))
                 if os.environ.get("AM_TEST_EDIT") and _edit_probe:
                     _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
                     _eb.emit("clicked")
@@ -2269,6 +2537,22 @@ def run_gui(shot_path=None):
                            a.get_upper() - 30))
                 if os.environ.get("AM_TEST_DATES"):
                     print("DATESTEST after line=%s" % _top_visible_line())
+                if os.environ.get("AM_TEST_HISTORY") or \
+                        os.environ.get("AM_TEST_REUSE"):
+                    _d = _hist_probe.get("dlg")
+                    print("HISTTEST dialog-items=%d%s" % (
+                        _hist_probe["n"],
+                        " dlg=%dx%d mapped=%s" % (_d.get_allocated_width(),
+                                                  _d.get_allocated_height(),
+                                                  _d.get_mapped()) if _d else ""))
+                if os.environ.get("AM_TEST_REUSE"):
+                    print("REUSETEST pending=%d read=%d"
+                          % (len(_ctx_items(_PEND)), len(_ctx_items(_RD))))
+                if os.environ.get("AM_TEST_PAUSE"):
+                    print("PAUSETEST active=%s paused-file=%s"
+                          % (_pause_probe[0].get_active()
+                             if _pause_probe else None,
+                             sorted(paused_ids()) or "(none)"))
                 if os.environ.get("AM_TEST_EDIT") and _edit_probe:
                     _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
                     try:
@@ -2294,6 +2578,12 @@ def run_gui(shot_path=None):
             else:
                 print("SHOT-FAIL no window")
             Gtk.main_quit()
+            if shot_path:
+                # a modal dialog (e.g. the history test) may still be
+                # running its own main loop - leave no strays behind
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
         GLib.timeout_add(int(os.environ.get("AM_PREP_DELAY", "800")), _test_prep)
         GLib.timeout_add(int(os.environ.get("AM_SHOT_DELAY", "2500")), snap)
 
