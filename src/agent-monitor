@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.11"
+VERSION = "1.6.12"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -722,8 +722,9 @@ def run_gui(shot_path=None):
             "idle": (0.600, 0.630, 0.670) if dark else (0.260, 0.300, 0.350),
             "arr_read": (0.133, 0.722, 0.369) if dark else (0.037, 0.412, 0.854),
             "arr_write": (0.890, 0.702, 0.255) if dark else (0.820, 0.440, 0.050),
-            "arr_read_idle": (0.600, 0.630, 0.670) if dark else (0.290, 0.298, 0.322),
-            "arr_write_idle": (0.600, 0.630, 0.670) if dark else (0.290, 0.298, 0.322),
+            # idle arrows: gray like the flow labels, 3%% lighter
+            "arr_read_idle": (0.600, 0.630, 0.670) if dark else (0.435, 0.431, 0.424),
+            "arr_write_idle": (0.600, 0.630, 0.670) if dark else (0.435, 0.431, 0.424),
             "green": (0.133, 0.722, 0.369) if dark else (0.10, 0.50, 0.215),
             "pill_up": "#2ea043" if dark else "#1a7f37",
             "pill_conn": "#bb6700" if dark else "#9a6700",
