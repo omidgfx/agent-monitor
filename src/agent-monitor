@@ -37,7 +37,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.5"
+VERSION = "1.6.6"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -1485,6 +1485,9 @@ def run_gui(shot_path=None):
             hsw = Gtk.ScrolledWindow()
             hsw.set_policy(Gtk.PolicyType.AUTOMATIC,
                            Gtk.PolicyType.AUTOMATIC)
+            # traditional scrollbar: an overlay scrollbar would cover
+            # the reuse buttons at the right edge of each row
+            hsw.set_property("overlay-scrolling", False)
             hlst = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             _reuse_btns = []
             for cid, when, text in items:
@@ -1787,6 +1790,8 @@ def run_gui(shot_path=None):
     ctx_info.set_max_width_chars(40)
     ctx_scroll = Gtk.ScrolledWindow()
     ctx_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    # keep card action buttons clear of an overlay scrollbar
+    ctx_scroll.set_property("overlay-scrolling", False)
     ctx_scroll.add(ctx_list)
     pool_tab = {"cur": "ctx"}
     ctx_input_tv = Gtk.TextView()
@@ -1816,6 +1821,7 @@ def run_gui(shot_path=None):
     rule_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     rule_scroll = Gtk.ScrolledWindow()
     rule_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    rule_scroll.set_property("overlay-scrolling", False)
     rule_scroll.add(rule_list)
     rl_info = Gtk.Label(xalign=0.0)
     rl_info.set_name("ctxmeta")
@@ -2579,6 +2585,25 @@ def run_gui(shot_path=None):
                         " dlg=%dx%d mapped=%s" % (_d.get_allocated_width(),
                                                   _d.get_allocated_height(),
                                                   _d.get_mapped()) if _d else ""))
+                if os.environ.get("AM_TEST_HISTORY"):
+                    _bs = _hist_probe.get("btns") or []
+                    if _bs:
+                        _b0 = _bs[0]
+                        _vp = _b0.get_ancestor(Gtk.Viewport)
+                        _tr = _b0.translate_coordinates(_vp, 0, 0) \
+                            if _vp is not None else None
+                        _sv = _vp.get_vadjustment() if _vp is not None else None
+                        print("HISTBTN btn-right=%.0f viewport-w=%s "
+                              "scrolling=%s clear=%s" % (
+                                  (_tr[0] + _b0.get_allocated_width())
+                                  if _tr is not None else -1,
+                                  _vp.get_allocated_width()
+                                  if _vp is not None else -1,
+                                  (_sv.get_upper() > _sv.get_page_size())
+                                  if _sv is not None else None,
+                                  (_tr is not None and _vp is not None and
+                                   _tr[0] + _b0.get_allocated_width()
+                                   <= _vp.get_allocated_width())))
                 if os.environ.get("AM_TEST_REUSE"):
                     print("REUSETEST pending=%d read=%d"
                           % (len(_ctx_items(_PEND)), len(_ctx_items(_RD))))
