@@ -16,6 +16,7 @@ between file edits, between decisions, between tool batches, before
 responding, before claiming done, first action of every response):
 
     agent-monitor --context-take
+    agent-monitor <agent> --context-take      # when you run under more than one id
 
 Output sections:
 - NEW CONTEXT — items you must incorporate IMMEDIATELY (top of your task
@@ -24,15 +25,28 @@ Output sections:
 - RULES — permanent, returned on EVERY pickup, always apply. Re-read them
   every time; a new one can appear at any moment.
 
+Every context has an id (`ctx-YYYYMMDD-HHMMSS-NN`) and a state. Pickup
+moves `new` -> `taken`; when you have acted on one you archive it:
+
+    agent-monitor --context-done=<id>      # taken -> done
+    agent-monitor --context-done=all       # everything you were given
+    agent-monitor --context-take=all       # re-read new+taken+done
+    agent-monitor --agents                 # every agent pool + counts
+
 Add from shell (what the GUI does):
 
     agent-monitor --context-add "text"     # one-shot context
     agent-monitor --rule-add "text"        # permanent rule
     agent-monitor --rules                  # list rules only
 
-Hard limits: never delete/edit/move anything in
-~/.agent-monitor/context/ yourself — only --context-take moves
-pending -> read. Rules are managed by the owner in the GUI only.
+Pools are per agent: `~/.agent-monitor/agents/<agent>/context/{new,taken,done,rules}`.
+Your identity is `$AGENT_MONITOR_ID`, else `~/.agent-monitor/agent-id`,
+else `default`; a bare positional (`agent-monitor hamvarz --context-take`)
+overrides it for one call.
+
+Hard limits: never delete/edit/move anything under
+~/.agent-monitor/agents/ yourself — only --context-take and
+--context-done move items. Rules are managed by the owner in the GUI only.
 
 ## What the owner sees
 

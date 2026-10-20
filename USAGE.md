@@ -8,8 +8,8 @@ owner uses to steer the agent mid-work.
 
 From a release (Debian/Ubuntu):
 
-    wget https://github.com/omidgfx/agent-monitor/releases/latest/download/agent-monitor_1.5.5_all.deb
-    sudo dpkg -i agent-monitor_1.5.5_all.deb
+    wget https://github.com/omidgfx/agent-monitor/releases/latest/download/agent-monitor_1.7.0_all.deb
+    sudo dpkg -i agent-monitor_1.7.0_all.deb
     sudo apt install -f          # if deps missing (python3-gi, gir1.2-gtk-3.0)
 
 Or build from source: ./build-deb.sh && sudo dpkg -i agent-monitor_*_all.deb
@@ -46,13 +46,21 @@ status. Removes just drop the ingress rule (notes any DNS to clean).
 
 Right sidebar, two tabs:
 - Context — type + Send (or Ctrl+Enter). Cards stack, collapsible,
-  deletable. When the agent picks them up they are marked read and vanish.
+  deletable. When the agent picks them up they leave the tab (state
+  `new` -> `taken`) and the history button shows what was picked up, with
+  a button per card to archive it (`done`).
 - Rules — permanent instructions the agent receives with every pickup; it
   can never remove them (you can delete them here).
 
-Pool lives in ~/.agent-monitor/context/{pending,read,rules}. Logs live in
-~/.agent-monitor/logs/commands-YYYY-MM-DD.log (daily files, kept forever;
-Clear-today truncates only today file).
+Pools are per agent — the combo in the "Context Pool" header picks which
+one the sidebar shows (with the number of live items):
+
+    ~/.agent-monitor/agents/<agent>/context/{new,taken,done,rules}
+
+`default` is the pool used when nothing else is named. A pre-1.7 single
+pool in ~/.agent-monitor/context/ is migrated automatically on first run.
+Logs live in ~/.agent-monitor/logs/commands-YYYY-MM-DD.log (daily files,
+kept forever; Clear-today truncates only today file).
 
 ## CLI
 
@@ -60,6 +68,10 @@ Clear-today truncates only today file).
     agent-monitor --stats          # today read/write totals
     agent-monitor --selftest       # classifier + parser tests
     agent-monitor --context-take   # agent pickup: new context + rules
+    agent-monitor --context-take=all        # also the taken/done archive
+    agent-monitor --context-done=ID|all     # archive what was acted on
+    agent-monitor --agents         # every pool with per-state counts
+    agent-monitor <agent> --context-take    # one call, another pool
     agent-monitor --context-add "text"
     agent-monitor --rule-add "text"
     agent-monitor --rules

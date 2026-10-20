@@ -9,11 +9,23 @@ Harness:
          and manages the Cloudflare tunnel (status, restart/stop/start,
          ingress settings with add/remove hostnames).
 
+Every agent gets its own context pool, so several chats can be steered at once:
+
+    agent-monitor <agent-id> --context-take[=new|taken|undone|read|done|all]
+    agent-monitor <agent-id> --context-done=<id|all>
+    agent-monitor <agent-id> --context-add "text"
+    agent-monitor <agent-id> --rule-add "text"
+
+A context walks new -> taken -> done. `taken` is what the agent read and is
+working on; `done` is what it finished; `undone` answers everything not finished.
+Without an agent id the pool named `default` is used.
+
 CLI:
     agent-monitor                  open the GUI
     agent-monitor --stats          print today's read/write totals
     agent-monitor --selftest       verify classifier + parsers, exit 0/1
     agent-monitor --version
+    agent-monitor --agents         list the pools that exist
     agent-monitor --screenshot F   (internal) render window, save PNG, quit
 """
 
@@ -37,7 +49,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.6.13"
+VERSION = "1.7.0"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -463,6 +475,23 @@ def cmd_selftest():
     _n3, _r3 = ctx_take(base=_base)
     assert len(_r3) == 1 and _r3[0][2] == "rule one", "ctx rules"
     print("context pool: ok")
+    # per-agent pools + the new -> taken -> done state machine
+    import shutil as _sh
+    _ag = "selftest-%d" % os.getpid()
+    _before = len(ctx_items_by_state(DEFAULT_AGENT, "new"))
+    _cid = ctx_add("agent scoped note", agent=_ag)
+    assert _cid.startswith("ctx-"), "ctx id"
+    assert len(ctx_items_by_state(_ag, "new")) == 1, "agent add"
+    assert len(ctx_items_by_state(DEFAULT_AGENT, "new")) == _before, "pool bleed"
+    _t, _ = ctx_take(agent=_ag)
+    assert len(_t) == 1 and not ctx_items_by_state(_ag, "new"), "agent take"
+    assert len(ctx_items_by_state(_ag, "taken")) == 1, "agent taken"
+    assert ctx_move(_cid, "done", agent=_ag), "ctx move done"
+    assert len(ctx_items_by_state(_ag, "done")) == 1, "agent done"
+    assert ctx_move(_cid, "taken", agent=_ag), "ctx move back"
+    assert ctx_move(_cid, "done", agent=_ag), "ctx move done again"
+    _sh.rmtree(os.path.join(CTX_ROOT, _ag), ignore_errors=True)
+    print("agent pools: ok")
     from datetime import date as _date
     for g, j in (((2026, 3, 21), "1405/01/01"), ((2026, 10, 7), "1405/07/15"),
                  ((2026, 10, 8), "1405/07/16"), ((2025, 3, 21), "1404/01/01")):
@@ -488,23 +517,136 @@ CTX_BASE = os.environ.get("AGENT_MONITOR_CTX_DIR") or os.path.join(
     HOME, ".agent-monitor", "context")
 
 
+AGENT = None
+CTX_ROOT = os.path.join(HOME, ".agent-monitor", "agents")
+CTX_IDENTITY = os.path.join(HOME, ".agent-monitor", "agent-id")
+STATES = ("new", "taken", "done")
+DEFAULT_AGENT = "default"
+AGENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+LEGACY_STATES = ("pending", "read")
+RESERVED = set(STATES) | set(LEGACY_STATES) | {"rules"}
+
+
+def clean_agent(agent):
+    a = (agent or "").strip()
+    if not a:
+        return ""
+    return a if AGENT_RE.match(a) and a not in RESERVED else ""
+
+
+def current_agent(explicit=None):
+    """Explicit argument, then $AGENT_MONITOR_ID, then agent-id, then `default`."""
+    for candidate in (explicit, os.environ.get("AGENT_MONITOR_ID")):
+        a = clean_agent(candidate)
+        if a:
+            return a
+    try:
+        with open(CTX_IDENTITY, encoding="utf-8") as fh:
+            a = clean_agent(fh.read())
+        if a:
+            return a
+    except OSError:
+        pass
+    return DEFAULT_AGENT
+
+
+def all_agents():
+    """Every pool on disk, `default` first, then the rest by name."""
+    names = {DEFAULT_AGENT}
+    for base in (CTX_ROOT, CTX_BASE):
+        try:
+            for name in os.listdir(base):
+                if name in RESERVED:
+                    continue
+                if os.path.isdir(os.path.join(base, name)) and clean_agent(name):
+                    names.add(name)
+        except OSError:
+            pass
+    try:
+        for name in os.listdir(os.path.join(CTX_ROOT, DEFAULT_AGENT, "context")):
+            if name in STATES:
+                names.add(DEFAULT_AGENT)
+    except OSError:
+        pass
+    return [DEFAULT_AGENT] + sorted(n for n in names if n != DEFAULT_AGENT)
+
+
+def ctx_base(agent=None):
+    a = current_agent(agent)
+    if a == DEFAULT_AGENT:
+        # v1.6.x kept the default pool in ~/.agent-monitor/context (pending/read/rules);
+        # until it is migrated by ctx_ensure() this keeps every old context visible.
+        legacy = os.path.join(CTX_BASE, "pending")
+        modern = os.path.join(CTX_ROOT, DEFAULT_AGENT, "context", "new")
+        if os.path.isdir(legacy) and not os.path.isdir(modern):
+            return CTX_BASE
+        return os.path.join(CTX_ROOT, DEFAULT_AGENT, "context")
+    return os.path.join(CTX_ROOT, a, "context")
+
+
 def _ctx_dirs(base=None):
-    b = base or CTX_BASE
-    return (os.path.join(b, "pending"), os.path.join(b, "read"),
-            os.path.join(b, "rules"))
+    b = base or ctx_base()
+    return tuple(os.path.join(b, st) for st in STATES) + (os.path.join(b, "rules"),)
 
 
-def ctx_ensure(base=None):
-    for d in _ctx_dirs(base):
+def _ctx_rename(old, new):
+    for legacy, state in (("pending", "new"), ("read", "taken"),
+                          ("rules", "rules")):
+        src = os.path.join(old, legacy)
+        dst = os.path.join(new, state)
+        if not os.path.isdir(src):
+            continue
+        os.makedirs(dst, exist_ok=True)
+        for name in sorted(os.listdir(src)):
+            if name.endswith(".md"):
+                try:
+                    os.replace(os.path.join(src, name), os.path.join(dst, name))
+                except OSError:
+                    pass
+        try:
+            os.rmdir(src)
+        except OSError:
+            pass
+
+
+def ctx_ensure(base=None, agent=None):
+    a = current_agent(agent)
+    home = os.path.join(CTX_ROOT, a, "context")
+    b = base or ctx_base(a)
+    if a == DEFAULT_AGENT and os.path.isdir(CTX_BASE):
+        # v1.6.x pool: pending/read/rules -> new/taken/rules, then leave nothing behind
+        _ctx_rename(CTX_BASE, home)
+        for name in ("new", "taken", "done"):
+            src = os.path.join(CTX_BASE, name)
+            dst = os.path.join(home, name)
+            if not os.path.isdir(src):
+                continue
+            os.makedirs(dst, exist_ok=True)
+            for f in sorted(os.listdir(src)):
+                if f.endswith(".md"):
+                    try:
+                        os.replace(os.path.join(src, f), os.path.join(dst, f))
+                    except OSError:
+                        pass
+            try:
+                os.rmdir(src)
+            except OSError:
+                pass
+        try:
+            os.rmdir(CTX_BASE)
+        except OSError:
+            pass
+    for d in _ctx_dirs(b):
         os.makedirs(d, exist_ok=True)
+    return b
 
 
-def ctx_add(text, rules=False, base=None):
+def ctx_add(text, rules=False, base=None, agent=None):
     """Owner (or CLI) adds a context item / permanent rule. Returns item id."""
-    ctx_ensure(base)
-    pend, _rd, rul = _ctx_dirs(base)
+    b = ctx_ensure(base, agent)
+    new, _taken, _done, rul = _ctx_dirs(b)
     kind = "rule" if rules else "ctx"
-    d = rul if rules else pend
+    d = rul if rules else new
     ts = time.strftime("%Y%m%d-%H%M%S")
     n = 1
     while os.path.exists(os.path.join(d, "%s-%s-%02d.md" % (kind, ts, n))):
@@ -534,6 +676,47 @@ def _ctx_items(d):
     return out
 
 
+def ctx_items_by_state(agent=None, state="new"):
+    b = ctx_ensure(agent=agent)
+    new, taken, done, _rul = _ctx_dirs(b)
+    return _ctx_items({"new": new, "taken": taken, "done": done}[state]) if state in STATES else []
+
+
+def ctx_move(cid, to, agent=None):
+    """Move one context to another state. Returns True when it moved."""
+    if to not in STATES:
+        return False
+    b = ctx_ensure(agent=agent)
+    new, taken, done, _rul = _ctx_dirs(b)
+    here = {"new": new, "taken": taken, "done": done}
+    name = cid + ".md"
+    for state, d in here.items():
+        if state == to or not os.path.exists(os.path.join(d, name)):
+            continue
+        try:
+            os.replace(os.path.join(d, name), os.path.join(here[to], name))
+            return True
+        except OSError:
+            return False
+    return False
+
+
+def ctx_forget(cid, agent=None):
+    """Delete a context, whatever state it is in."""
+    b = ctx_ensure(agent=agent)
+    new, taken, done, _rul = _ctx_dirs(b)
+    gone = False
+    for d in (new, taken, done):
+        path = os.path.join(d, cid + ".md")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                gone = True
+            except OSError:
+                pass
+    return gone
+
+
 def _paused_path():
     return os.path.join(HOME, ".config", "agent-monitor", "paused.json")
 
@@ -559,35 +742,86 @@ def set_paused(ids):
         pass
 
 
-def ctx_take(base=None):
-    """Return (new_items, rules). Moves pending -> read (rules stay forever).
+def ctx_take(agent=None, base=None):
+    """Return (new_items, rules). Moves new -> taken (rules stay forever).
 
-    Paused contexts are left in pending for a later pickup.
+    Paused contexts are left in new for a later pickup.
     """
-    ctx_ensure(base)
-    pend, rd, rul = _ctx_dirs(base)
+    b = ctx_ensure(base=base, agent=agent)
+    new, taken, _done, rul = _ctx_dirs(b)
     skip = paused_ids()
-    new = []
-    for cid, when, text in list(_ctx_items(pend)):
+    picked = []
+    for cid, when, text in list(_ctx_items(new)):
         if cid in skip:
             continue
         try:
-            os.replace(os.path.join(pend, cid + ".md"), os.path.join(rd, cid + ".md"))
-            new.append((cid, when, text))
+            os.replace(os.path.join(new, cid + ".md"), os.path.join(taken, cid + ".md"))
+            picked.append((cid, when, text))
         except OSError:
             pass
-    return new, _ctx_items(rul)
+    return picked, _ctx_items(rul)
 
 
-def cmd_context_take():
-    new, rules = ctx_take()
-    print("=== NEW CONTEXT (now marked read) ===")
-    if new:
-        for cid, when, text in new:
-            print("[%s] %s" % (cid, when))
-            print(text)
-    else:
-        print("(none)")
+def _take_filter(argv):
+    """--context-take / --context-take=all / --context-take=done ..."""
+    for i, arg in enumerate(argv):
+        if not arg.startswith("--context-take"):
+            continue
+        if "=" in arg:
+            return arg.split("=", 1)[1].strip().lower()
+        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+        if nxt in ("new", "taken", "undone", "read", "readed", "done", "all"):
+            return nxt
+        return "new"
+    return None
+
+
+def cmd_context_take(state="new", agent=None):
+    if state in ("new", "read", "readed", "undone"):
+        picked, rules = ctx_take(agent)
+        if state == "new":
+            shown = picked
+            title = "NEW CONTEXT (moved to taken - %d)" % len(picked)
+        else:
+            list_state = "taken" if state in ("read", "readed") else "done"
+            shown = ctx_items_by_state(agent, list_state)
+            if state == "undone":
+                shown = [(c, w, t) for c, w, t in ctx_items_by_state(agent, "new")] + \
+                        [(c, w, t) for c, w, t in ctx_items_by_state(agent, "taken")]
+            title = "%s CONTEXT (%d)" % (("READ" if state in ("read", "readed") else "UNDONE"),
+                                        len(shown))
+        print("=== %s [agent: %s] ===" % (title, current_agent(agent)))
+        if shown:
+            for cid, when, text in shown:
+                print("[%s] %s" % (cid, when))
+                print(text)
+        else:
+            print("(none)")
+        _print_rules(rules)
+        return 0
+
+    if state in ("done", "all"):
+        lists = ("done",) if state == "done" else STATES
+        title = "DONE CONTEXT" if state == "done" else "ALL CONTEXT"
+        print("=== %s [agent: %s] ===" % (title, current_agent(agent)))
+        any_rows = False
+        for st in lists:
+            rows = ctx_items_by_state(agent, st)
+            for cid, when, text in rows:
+                any_rows = True
+                print("[%s] %s (%s)" % (cid, when, st))
+                print(text)
+        if not any_rows:
+            print("(none)")
+        _print_rules(ctx_items_by_state(agent, "__rules__") if False else
+                     _ctx_items(os.path.join(ctx_base(agent), "rules")))
+        return 0
+
+    print("usage: --context-take[=new|taken|undone|read|done|all]", file=sys.stderr)
+    return 2
+
+
+def _print_rules(rules):
     print("=== RULES (permanent - always apply) ===")
     if rules:
         for cid, _when, text in rules:
@@ -596,11 +830,34 @@ def cmd_context_take():
     else:
         print("(none)")
     print("=== END ===")
+
+
+def cmd_context_done(target="all", agent=None):
+    if target == "all":
+        rows = ctx_items_by_state(agent, "taken") + ctx_items_by_state(agent, "new")
+        moved = [cid for cid, _w, _t in rows if ctx_move(cid, "done", agent)]
+    else:
+        moved = [target] if ctx_move(target, "done", agent) else []
+    print("=== MARKED DONE (%d) [agent: %s] ===" % (len(moved), current_agent(agent)))
+    for cid in moved:
+        print("[%s]" % cid)
+    print("=== END ===")
+    return 0 if moved else 1
+
+
+def cmd_agents():
+    cur = current_agent()
+    for name in all_agents():
+        counts = []
+        for st in STATES:
+            counts.append("%s=%d" % (st, len(ctx_items_by_state(name, st))))
+        mark = "*" if name == cur else " "
+        print("%s %-20s %s" % (mark, name, " ".join(counts)))
     return 0
 
 
-def cmd_rules():
-    _pend, _rd, rul = _ctx_dirs()
+def cmd_rules(agent=None):
+    _new, _taken, _done, rul = _ctx_dirs(ctx_ensure(agent=agent))
     rules = _ctx_items(rul)
     if rules:
         for cid, _when, text in rules:
@@ -1426,7 +1683,27 @@ def run_gui(shot_path=None):
 
     # ---- context sidebar -------------------------------------------------
     SIDE_FILE = os.path.join(CFG_DIR, "sidebar")
-    _PEND, _RD, _RUL = _ctx_dirs()
+    _agent_pick = {"id": None}
+    _agent_seen = {"ids": []}
+    _POOL = {"base": ctx_ensure(agent=current_agent(AGENT))}
+
+
+    def _paths():
+        """The four directories of the pool currently on screen."""
+        return _ctx_dirs(_POOL["base"])
+
+
+    def _switch_agent(_combo=None):
+        picked = agent_combo.get_active_id()
+        if not picked or picked == _agent_pick["id"]:
+            return
+        _agent_pick["id"] = picked
+        _POOL["base"] = ctx_ensure(agent=picked)
+        sig_last["ctx"] = None
+        sig_last["rules"] = None
+        refresh_ctx_tabs()
+        _agent_refresh()
+
 
     ctx_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     ctx_side.set_name("ctxside")
@@ -1436,6 +1713,35 @@ def run_gui(shot_path=None):
 
     ctx_title = Gtk.Label(xalign=0.0)
     ctx_title.set_markup("<span size='9500' weight='bold'>Context Pool</span>")
+
+    agent_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    agent_box.set_tooltip_text(
+        "Which agent's context pool this window shows \u2014 each agent has its own")
+    agent_combo = Gtk.ComboBoxText()
+    agent_combo.set_id_column(0)
+    agent_combo.set_hexpand(True)
+    agent_badge = Gtk.Label(xalign=1.0)
+    agent_badge.get_style_context().add_class("dim-label")
+    agent_box.pack_start(agent_combo, True, True, 0)
+    agent_box.pack_start(agent_badge, False, False, 0)
+
+
+    def _agent_refresh():
+        ids = all_agents()
+        _agent_seen["ids"] = list(ids)
+        agent_combo.remove_all()
+        for a in ids:
+            agent_combo.append(a, a)
+        active = _agent_pick["id"] or current_agent(AGENT)
+        if active not in ids:
+            active = ids[0]
+        _agent_pick["id"] = active
+        agent_combo.set_active_id(active)
+        total = sum(len(ctx_items_by_state(active, st)) for st in STATES)
+        agent_badge.set_markup("<small>%d</small>" % total)
+
+    agent_combo.connect("changed", _switch_agent)
+
     ctx_sub = Gtk.Label(xalign=0.0)
     ctx_sub.set_line_wrap(True)
     ctx_sub.set_max_width_chars(36)
@@ -1444,6 +1750,7 @@ def run_gui(shot_path=None):
     ctx_sub.get_style_context().add_class("dim-label")
     _head_txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
     _head_txt.pack_start(ctx_title, False, False, 0)
+    _head_txt.pack_start(agent_box, False, False, 2)
     _head_txt.pack_start(ctx_sub, False, False, 0)
     hist_btn = Gtk.Button()
     _hist_icon = next(
@@ -1472,9 +1779,10 @@ def run_gui(shot_path=None):
             return w
 
     _hist_probe = {"n": -1}
+    _done_btns = []
 
     def show_history(*_a):
-        items = list(_ctx_items(_RD))
+        items = list(_ctx_items(_paths()[1]))
         items.reverse()
         _hist_probe["n"] = len(items)
         dlg = Gtk.Dialog(transient_for=win, modal=True)
@@ -1590,8 +1898,8 @@ def run_gui(shot_path=None):
 
                 def _reuse(_b, _cid=cid, _card=card):
                     try:
-                        os.replace(os.path.join(_RD, _cid + ".md"),
-                                   os.path.join(_PEND, _cid + ".md"))
+                        os.replace(os.path.join(_paths()[1], _cid + ".md"),
+                                   os.path.join(_paths()[0], _cid + ".md"))
                         GLib.idle_add(lambda: _remove_row(_card, _cid))
                     except OSError:
                         pass
@@ -1607,13 +1915,33 @@ def run_gui(shot_path=None):
 
                 def _del(_b, _cid=cid, _card=card):
                     try:
-                        os.remove(os.path.join(_RD, _cid + ".md"))
+                        os.remove(os.path.join(_paths()[1], _cid + ".md"))
                         GLib.idle_add(lambda: _remove_row(_card, _cid))
                     except OSError:
                         pass
 
                 db.connect("clicked", _del)
+                done_btn = Gtk.Button()
+                done_btn.set_image(Gtk.Image.new_from_icon_name(
+                    "object-select-symbolic", Gtk.IconSize.BUTTON))
+                done_btn.set_relief(Gtk.ReliefStyle.NONE)
+                done_btn.set_name("cardbtn")
+                done_btn.set_tooltip_text("Mark as done \u2014 finished, kept as history")
+
+                def _mark_done(_b, _cid=cid, _card=card):
+                    try:
+                        done_dir = _paths()[2]
+                        os.makedirs(done_dir, exist_ok=True)
+                        os.replace(os.path.join(_paths()[1], _cid + ".md"),
+                                   os.path.join(done_dir, _cid + ".md"))
+                        GLib.idle_add(lambda: _remove_row(_card, _cid))
+                    except OSError:
+                        pass
+
+                done_btn.connect("clicked", _mark_done)
+                _done_btns.append(done_btn)
                 _del_btns.append(db)
+                head.pack_start(done_btn, False, False, 0)
                 head.pack_start(sel, False, False, 0)
                 head.pack_start(wl, True, True, 0)
                 head.pack_end(db, False, False, 0)
@@ -1685,7 +2013,7 @@ def run_gui(shot_path=None):
             def _del_sel(_b):
                 for cid in list(_sel["ids"]):
                     try:
-                        os.remove(os.path.join(_RD, cid + ".md"))
+                        os.remove(os.path.join(_paths()[1], cid + ".md"))
                     except OSError:
                         pass
                     card = _cards.get(cid)
@@ -1709,7 +2037,7 @@ def run_gui(shot_path=None):
             def _del_all(_b):
                 for cid in list(_cards.keys()):
                     try:
-                        os.remove(os.path.join(_RD, cid + ".md"))
+                        os.remove(os.path.join(_paths()[1], cid + ".md"))
                     except OSError:
                         pass
                 _cards.clear()
@@ -2087,9 +2415,9 @@ def run_gui(shot_path=None):
 
     def _refresh_ctx_tabs_inner():
         p = state["pal"]
-        pend_items = _ctx_items(_PEND)
+        pend_items = _ctx_items(_paths()[0])
         try:
-            read_n = len(os.listdir(_RD))
+            read_n = len(os.listdir(_paths()[1]))
         except OSError:
             read_n = 0
         sig = tuple(i[0] for i in pend_items) + (read_n,)
@@ -2102,20 +2430,21 @@ def run_gui(shot_path=None):
             for cid, when, text in pend_items:
                 ctx_list.pack_start(
                     ctx_card(cid, text, when, "waiting", p["pill_conn"], p["lbl"],
-                             _mk_del(os.path.join(_PEND, cid + ".md"), "ctx"),
-                             _mk_save(os.path.join(_PEND, cid + ".md"), "ctx"),
+                             _mk_del(os.path.join(_paths()[0], cid + ".md"), "ctx"),
+                             _mk_save(os.path.join(_paths()[0], cid + ".md"), "ctx"),
                              pausable=True),
                     False, False, 0)
             ctx_list.show_all()
         act = [i for i in pend_items if i[0] not in paused_ids()]
         ppaused = len(pend_items) - len(act)
         ctx_info.set_markup(
-            "waiting: %d%s \u00b7 picked up: %d"
+            "waiting: %d%s \u00b7 taken: %d \u00b7 done: %d"
             % (len(act),
                (" \u00b7 <span foreground='%s'>paused: %d</span>"
                 % (p["lbl"], ppaused)) if ppaused else "",
-               read_n))
-        rule_items = _ctx_items(_RUL)
+               read_n,
+               len(os.listdir(_paths()[2])) if os.path.isdir(_paths()[2]) else 0))
+        rule_items = _ctx_items(_paths()[3])
         rsig = tuple(i[0] for i in rule_items)
         if rsig != sig_last["rules"]:
             sig_last["rules"] = rsig
@@ -2124,8 +2453,8 @@ def run_gui(shot_path=None):
             for cid, when, text in rule_items:
                 rule_list.pack_start(
                     ctx_card(cid, text, when, "permanent", "#8957e5", p["lbl"],
-                             _mk_del(os.path.join(_RUL, cid + ".md"), "rules"),
-                             _mk_save(os.path.join(_RUL, cid + ".md"), "rules")),
+                             _mk_del(os.path.join(_paths()[3], cid + ".md"), "rules"),
+                             _mk_save(os.path.join(_paths()[3], cid + ".md"), "rules")),
                     False, False, 0)
             rule_list.show_all()
 
@@ -2137,6 +2466,12 @@ def run_gui(shot_path=None):
 
     def _ctx_tick():
         refresh_ctx_tabs()
+        if _agent_seen["ids"] != list(all_agents()):
+            _agent_refresh()
+        else:
+            total = sum(len(ctx_items_by_state(_agent_pick["id"], st))
+                        for st in STATES)
+            agent_badge.set_markup("<small>%d</small>" % total)
         return True
 
     def on_pool_send(*_a):
@@ -2631,6 +2966,7 @@ def run_gui(shot_path=None):
     GLib.timeout_add(3000, _tunnel_tick)
     GLib.timeout_add(100, tick_anim)
 
+    _agent_refresh()
     refresh_ctx_tabs()
     GLib.timeout_add(1000, _ctx_tick)
     win.show_all()
@@ -2660,6 +2996,8 @@ def run_gui(shot_path=None):
     if shot_path:
         def _test_prep():
             try:
+                if os.environ.get("AM_TEST_AGENT"):
+                    agent_combo.set_active_id(os.environ["AM_TEST_AGENT"])
                 if os.environ.get("AM_TAB") == "rules":
                     tab_btns["rules"].set_active(True)
                 _want_hist = any(os.environ.get(k) for k in (
@@ -2870,13 +3208,13 @@ def run_gui(shot_path=None):
                                    <= _vp.get_allocated_width())))
                 if os.environ.get("AM_TEST_REUSE"):
                     print("REUSETEST pending=%d read=%d"
-                          % (len(_ctx_items(_PEND)), len(_ctx_items(_RD))))
+                          % (len(_ctx_items(_paths()[0])), len(_ctx_items(_paths()[1]))))
                 if os.environ.get("AM_TEST_HISTDEL") or \
                         os.environ.get("AM_TEST_HISTSEL") or \
                         os.environ.get("AM_TEST_HISTDELALL"):
                     _d = _hist_probe.get("dlg")
                     print("HISTDEL read=%d dlg-n=%d mapped=%s"
-                          % (len(_ctx_items(_RD)), _hist_probe["n"],
+                          % (len(_ctx_items(_paths()[1])), _hist_probe["n"],
                              _d.get_mapped() if _d is not None else None))
                 if os.environ.get("AM_TEST_HISTSEARCH"):
                     _mm = _hist_probe.get("meta") or {}
@@ -2896,7 +3234,7 @@ def run_gui(shot_path=None):
                 if os.environ.get("AM_TEST_EDIT") and _edit_probe:
                     _eb, _eok, _ebox, _etv, _cid = _edit_probe[0]
                     try:
-                        with open(os.path.join(_PEND, _cid + ".md"),
+                        with open(os.path.join(_paths()[0], _cid + ".md"),
                                   encoding="utf-8") as _fh:
                             _content = _fh.read().strip()
                     except OSError:
@@ -2940,28 +3278,53 @@ def run_gui(shot_path=None):
     return 0
 
 
+def _arg_value(argv, flag):
+    """--flag=value or --flag value"""
+    for i, arg in enumerate(argv):
+        if arg == flag:
+            return argv[i + 1] if i + 1 < len(argv) else ""
+        if arg.startswith(flag + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _agent_from(argv):
+    for arg in argv:
+        if arg.startswith("-"):
+            continue
+        return clean_agent(arg)
+    return None
+
+
 def main(argv):
+    global AGENT
+    AGENT = _agent_from(argv)
+
     if "--selftest" in argv:
         rc = cmd_selftest()
         return token_tests() or rc
     if "--stats" in argv:
         cmd_stats()
         return 0
-    if "--context-take" in argv:
-        return cmd_context_take()
+    if "--context-take" in " ".join(argv) or _take_filter(argv) is not None:
+        return cmd_context_take(_take_filter(argv) or "new", AGENT)
+
+    if _arg_value(argv, "--context-done") is not None:
+        return cmd_context_done(_arg_value(argv, "--context-done") or "all", AGENT)
+
+    if "--agents" in argv:
+        return cmd_agents()
     if "--rules" in argv:
         return cmd_rules()
     if "--context-add" in argv:
-        idx = argv.index("--context-add")
-        if len(argv) > idx + 1:
-            ctx_add(argv[idx + 1])
-            print("context added")
+        text = _arg_value(argv, "--context-add")
+        if text:
+            print("context added:", ctx_add(text, agent=AGENT))
             return 0
     if "--rule-add" in argv:
-        idx = argv.index("--rule-add")
-        if len(argv) > idx + 1:
-            ctx_add(argv[idx + 1], rules=True)
-            print("rule added")
+        text = _arg_value(argv, "--rule-add")
+        if text:
+            print("rule added:", ctx_add(text, rules=True, agent=AGENT))
             return 0
     if "--version" in argv:
         print("agent-monitor %s" % VERSION)

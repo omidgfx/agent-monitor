@@ -39,6 +39,11 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
     agent-monitor              # GUI
     agent-monitor --stats      # today's read/write totals
     agent-monitor --selftest   # classifier + config-parser tests
+    agent-monitor --agents     # every context pool with per-state counts
+    agent-monitor --context-take[=new|taken|undone|read|done|all]
+    agent-monitor --context-done[=ID|all]
+    agent-monitor --context-add "text" / --rule-add "text" / --rules
+    agent-monitor hamvarz --context-take    # same, for one named agent
     agent-monitor --version
 
 ## Files
@@ -46,6 +51,26 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
 - logs: `~/.agent-monitor/logs/`
 - tunnel config (edited via the GUI): `/etc/cloudflared/config.yml` —
   every Apply writes a timestamped `.bak-…` copy next to it
+
+## v1.7.0 — per-agent context pools, stateful context
+- every agent has its own pool: `~/.agent-monitor/agents/<agent>/context/`
+  with `new/`, `taken/`, `done/` and `rules/`. The pre-1.7 single pool
+  (`~/.agent-monitor/context/{pending,read,rules}`) is migrated once, in
+  place, and the old folder is left empty-behind (no duplicates)
+- context is a state machine with one id per item: `new` → `taken` →
+  `done`. `--context-take` moves new → taken and prints them;
+  `--context-done=ID` (or `all`) archives; `--context-take=done|all`
+  reads the archive back, so nothing is ever lost
+- agent identity: `AGENT_MONITOR_ID` in the environment, else
+  `~/.agent-monitor/agent-id`, else `default`; a bare positional
+  (`agent-monitor hamvarz --context-take`) wins over both
+- sidebar header: a combo listing every pool with the count of live items,
+  switching it swaps the whole sidebar (context, in-flight, history, rules)
+  to that agent; the list and the count refresh live
+- CLI: `--agents`, `--context-take[=new|taken|undone|read|done|all]`,
+  `--context-done[=ID|all]`
+- `--screenshot` test hook: `AM_TEST_AGENT=<id>` selects a pool before the
+  shot is taken
 
 ## v1.2 — UI refresh
 - transfer view moved into a status bar (AI ⇄ VM with **animated dashed
