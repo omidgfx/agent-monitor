@@ -49,7 +49,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -1719,10 +1719,10 @@ def run_gui(shot_path=None):
         "Which agent's context pool this window shows \u2014 each agent has its own")
     agent_combo = Gtk.ComboBoxText()
     agent_combo.set_id_column(0)
-    agent_combo.set_hexpand(True)
+    agent_combo.set_size_request(222, -1)
     agent_badge = Gtk.Label(xalign=1.0)
     agent_badge.get_style_context().add_class("dim-label")
-    agent_box.pack_start(agent_combo, True, True, 0)
+    agent_box.pack_start(agent_combo, False, False, 0)
     agent_box.pack_start(agent_badge, False, False, 0)
 
 

@@ -52,6 +52,14 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
 - tunnel config (edited via the GUI): `/etc/cloudflared/config.yml` —
   every Apply writes a timestamped `.bak-…` copy next to it
 
+## v1.7.1 — the pool keeps its place
+- the agent combo was hexpand inside the sidebar header, so every ancestor
+  expanded too: the pool competed with the log for width and the log lost
+  117 px, leaving an empty strip to the right of the pool. The combo has a
+  fixed request now and the log/sidebar split is exactly what it was.
+  `--screenshot` prints the log and pool allocations so this cannot regress
+  silently (log 577 / pool 331 at 930 px).
+
 ## v1.7.0 — per-agent context pools, stateful context
 - every agent has its own pool: `~/.agent-monitor/agents/<agent>/context/`
   with `new/`, `taken/`, `done/` and `rules/`. The pre-1.7 single pool
