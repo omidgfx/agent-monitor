@@ -49,7 +49,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.7.2"
+VERSION = "1.7.3"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -1169,7 +1169,8 @@ def run_gui(shot_path=None):
         return Gtk.Image.new_from_icon_name(fallback, Gtk.IconSize.BUTTON)
 
     # ---- window / header ---------------------------------------------------
-    win = Gtk.Window(title="Agent Monitor")
+    window_title = "Agent Monitor \u00b7 v%s" % VERSION
+    win = Gtk.Window(title=window_title)
     win.set_default_size(920, 600)
     win.set_position(Gtk.WindowPosition.CENTER)
     for d in ICON_DIRS:
@@ -1183,7 +1184,7 @@ def run_gui(shot_path=None):
 
     hb = Gtk.HeaderBar()
     hb.set_show_close_button(True)
-    hb.props.title = "Agent Monitor"
+    hb.props.title = window_title
     hb.props.subtitle = "AI \u21c4 VM"
     theme_btn = Gtk.Button()
     theme_btn.connect("clicked", lambda *_a: apply_theme(

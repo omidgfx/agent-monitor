@@ -53,6 +53,10 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
 - tunnel config (edited via the GUI): `/etc/cloudflared/config.yml` —
   every Apply writes a timestamped `.bak-…` copy next to it
 
+## v1.7.3 — show the running version
+- The main window title now includes the installed Agent Monitor version,
+  making it visible without opening a terminal.
+
 ## v1.7.2 — Cloudflare ingress validation
 - Tunnel Settings now validates with the current CLI form:
   `cloudflared tunnel --config <file> ingress validate`. The previous
