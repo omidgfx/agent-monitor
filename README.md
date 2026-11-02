@@ -28,7 +28,8 @@ The GUI tails today's file. `Clear today` truncates only today's file.
 
 > AI agent working on this machine? Read [SKILL.md](SKILL.md) first.
 > Full human manual: [USAGE.md](USAGE.md).
-    sudo dpkg -i agent-monitor_1.1.0_all.deb   # deps: python3-gi gir1.2-gtk-3.0
+    ./build-deb.sh
+    sudo dpkg -i "agent-monitor_$(tr -d '[:space:]' < VERSION)_all.deb"
     agent-monitor-install-hook                 # once, as your user
 
 Launch from Activities → "Agent Monitor", or run `agent-monitor`.
@@ -51,6 +52,14 @@ Tunnel control needs passwordless sudo for `systemctl`/`cloudflared`
 - logs: `~/.agent-monitor/logs/`
 - tunnel config (edited via the GUI): `/etc/cloudflared/config.yml` —
   every Apply writes a timestamped `.bak-…` copy next to it
+
+## v1.7.2 — Cloudflare ingress validation
+- Tunnel Settings now validates with the current CLI form:
+  `cloudflared tunnel --config <file> ingress validate`. The previous
+  command omitted `tunnel` and put `--config` after the subcommand, causing
+  Cloudflare to report that the configured tunnel was not running before
+  Apply could back up or write the config.
+- Added a self-test assertion for the validation command ordering.
 
 ## v1.7.1 — the pool keeps its place
 - the agent combo was hexpand inside the sidebar header, so every ancestor

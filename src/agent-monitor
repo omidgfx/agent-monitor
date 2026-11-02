@@ -49,7 +49,7 @@ CF_STATE = os.path.join(HOME, "agent-status", "cf.state")
 METRICS_URL = "http://127.0.0.1:53111/metrics"
 CF_CONFIG = "/etc/cloudflared/config.yml"
 CF_SERVICE = "cloudflared"
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 ICON_DIRS = [
     "/usr/share/agent-monitor/icons",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons"),
@@ -337,6 +337,11 @@ def priv_sh(cmd, timeout=120):
     return rc, out
 
 
+def cloudflared_ingress_validate_command(cfbin, config_path):
+    """Build the current cloudflared CLI command for validating ingress."""
+    return [cfbin, "tunnel", "--config", config_path, "ingress", "validate"]
+
+
 def read_cf_config():
     try:
         with open(CF_CONFIG, encoding="utf-8") as fh:
@@ -443,6 +448,13 @@ SELFTEST = [
 
 def cmd_selftest():
     fails = 0
+    _cf_config = "/tmp/agent-monitor-selftest.yml"
+    _cf_command = cloudflared_ingress_validate_command(
+        "/usr/bin/cloudflared", _cf_config)
+    _cf_expected = ["/usr/bin/cloudflared", "tunnel", "--config",
+                    _cf_config, "ingress", "validate"]
+    assert _cf_command == _cf_expected, "cloudflared ingress validation command"
+    print("cloudflared validation command: ok")
     for raw, expected in SELFTEST:
         got = classify(raw)
         if got != expected:
@@ -2906,7 +2918,7 @@ def run_gui(shot_path=None):
                 cfbin = shutil.which("cloudflared")
                 steps = []
                 if cfbin:
-                    rc, out = sh([cfbin, "ingress", "validate", "--config", tmp], timeout=40)
+                    rc, out = sh(cloudflared_ingress_validate_command(cfbin, tmp), timeout=40)
                     if rc != 0:
                         GLib.idle_add(self._fail, "Validation failed: " + out[:300])
                         return

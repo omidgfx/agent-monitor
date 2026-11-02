@@ -12,7 +12,10 @@ From a release (Debian/Ubuntu):
     sudo dpkg -i agent-monitor_1.7.0_all.deb
     sudo apt install -f          # if deps missing (python3-gi, gir1.2-gtk-3.0)
 
-Or build from source: ./build-deb.sh && sudo dpkg -i agent-monitor_*_all.deb
+Or build from source:
+
+    ./build-deb.sh
+    sudo dpkg -i "agent-monitor_$(tr -d '[:space:]' < VERSION)_all.deb"
 
 First run per user (enables command capture):
 
